@@ -1,0 +1,4 @@
+# Entorno de Julia para el laboratorio en la nube (mybinder.org). repo2docker instala la versión de
+# Julia más reciente que cumple [compat] y añade el núcleo de Jupyter (IJulia).
+[compat]
+julia = "1.13"
