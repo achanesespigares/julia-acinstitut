@@ -4,6 +4,7 @@
 // Cada función reproduce lo que hace Julia, también sus errores, con el mismo texto. Lo que no está aquí
 // no se improvisa: si es una función conocida de Julia, el laboratorio dice que aún no la sabe usar.
 import * as V from "./valores.mjs";
+import * as TX from "./textos.mjs";
 import { ErrorJulia, NoSoportado, I, F, B, S, Ch, NADA, FALTA, errorMetodo, aNum, tipo, repr } from "./valores.mjs";
 
 const T = nombre => ({ T: "Tipo", nombre });
@@ -14,8 +15,8 @@ export const TIPOS = {
 };
 // Nombres de Julia que existen pero que el laboratorio aún no sabe ejecutar
 export const CONOCIDAS = new Set(("big BigInt BigFloat Float32 Int32 Int8 UInt8 UInt Complex complex im rand randn seed! Random mean median std var " +
-  "Dict Set keys values haskey get get! merge delete! pairs split join replace strip lpad rpad occursin startswith endswith findfirst findlast " +
-  "uppercase lowercase titlecase chop chomp reduce foldl foldr mapreduce accumulate cumsum cumprod diff unique sortperm argmax argmin extrema " +
+  "Dict Set keys values haskey get get! merge delete! pairs lpad rpad " +
+  "chomp reduce foldl foldr mapreduce accumulate cumsum cumprod diff unique sortperm argmax argmin extrema " +
   "Matrix Array transpose reshape hcat vcat size ndims axes vec dot cross norm inv det LinearAlgebra Statistics plot println_ " +
   "struct mutable abstract typeof_ isa eltype convert promote sizeof summarysize objectid ismutable deepcopy view @view @views similar " +
   "ifelse iterate Iterators sum! maximum! push !== === try catch error throw rethrow DomainError ArgumentError " +
@@ -77,6 +78,8 @@ export function crearPrimitivas(prog) {
     if (op === "==") return B(P.iguales(a, b));
     if (op === "!=") return B(!P.iguales(a, b));
     if (["<", ">", "<=", ">="].includes(op)) return P.compara(op, a, b);
+    if (op === "=>") return { T: "Pair", a, b };
+    if ((a.T === "Char" || b.T === "Char") && (op === "+" || op === "-")) { const r = TX.aritmeticaLetra(op, a, b); if (r) return r; throw errorMetodo(op, [a, b]); }
     if (NUM(a) && NUM(b)) return P.aritmetica(op, a, b);
     if (op === "*" && (a.T === "String" || a.T === "Char") && (b.T === "String" || b.T === "Char")) return S(a.v + b.v);
     if (op === "^" && (a.T === "String" || a.T === "Char") && b.T === "Int64") {
@@ -227,6 +230,7 @@ export function crearPrimitivas(prog) {
     throw errorMetodo("isapprox", [a, b]);
   };
   P.pertenece = (x, col) => {
+    if (col.T === "String") return B(x.T === "Char" && [...col.v].includes(x.v));
     if (!V.esVector(col) && col.T !== "Tuple") throw new NoSoportado("∈ con " + tipo(col));
     let falta = false;
     for (const e of P.itera(col)) { const r = P.binaria("==", x, e); if (r.T === "Missing") falta = true; else if (r.v) return B(true); }
@@ -268,7 +272,8 @@ export function crearPrimitivas(prog) {
   // Un vector con los resultados: el tipo de sus casillas sale de los valores (Bool con el punto → BitVector)
   P.recoge = (res, bits = false) => {
     if (!res.length) throw new NoSoportado("un vector vacío sin tipo");
-    const tipos = [...new Set(res.map(r => r.T === "Rational" ? "Rational{Int64}" : r.T === "Vector" ? tipo(r) : r.T))];
+    const tipos = [...new Set(res.map(r => r.T === "Rational" ? "Rational{Int64}" : r.T === "Vector" || r.T === "String" ? tipo(r) : r.T))];
+    if (tipos.length > 1 && tipos.every(t => t === "String" || t === "SubString{String}")) return V.vec("AbstractString", res);
     if (tipos.length === 1) {
       if (tipos[0] === "Bool" && bits) return V.bitvec(res);
       if (tipos[0] === "Irrational" || tipos[0].startsWith("Vector") || tipos[0] === "Tuple") throw new NoSoportado("un vector de " + tipos[0]);
@@ -281,13 +286,14 @@ export function crearPrimitivas(prog) {
   P.vectorLiteral = vals => {
     if (!vals.length) return V.vec("Any", []);
     if (vals.some(v => V.esVector(v) || v.T === "Tuple")) throw new NoSoportado("vectores de vectores (o concatenar con [a, b])");
-    const tipos = vals.map(v => v.T === "Rational" ? "Rational{Int64}" : v.T);
+    if (vals.some(v => v.T === "Pair")) throw new NoSoportado("vectores de parejas (Pair)");
+    const tipos = vals.map(v => v.T === "Rational" ? "Rational{Int64}" : v.T === "String" ? tipo(v) : v.T);
     if (tipos.some(t => t === "Nothing" || t === "Missing") && new Set(tipos).size > 1) throw new NoSoportado("vectores con nothing o missing mezclados (Union)");
     const el = V.promueve(tipos);
     return V.vec(el, vals.map(v => V.convierte(v, el)));
   };
   P.vectorTipado = (el, vals) => {
-    if (!["Int64", "Float64", "String", "Bool", "Char", "Any"].includes(el)) throw new NoSoportado("vectores de " + el);
+    if (!["Int64", "Float64", "String", "Bool", "Char", "Any", "SubString{String}", "AbstractString"].includes(el)) throw new NoSoportado("vectores de " + el);
     return V.vec(el, vals.map(v => V.convierte(v, el)));
   };
   P.rango = (a, s, b) => {
@@ -303,15 +309,10 @@ export function crearPrimitivas(prog) {
     if (NUM(x)) return [x];
     throw errorMetodo("iterate", [x]);
   };
-  P.ultimoIndice = s => { if ([...s.v].some(c => c.codePointAt(0) > 127)) throw new NoSoportado("índices en textos con acentos"); return s.v.length; };
-  const fueraDeLimites = (x, ind) => new ErrorJulia("BoundsError: attempt to access " + (x.T === "Tuple" ? tipo(x) : x.T === "String" ? x.v.length + "-codeunit String" : V.largo(x) + "-element " + tipo(x)) + " at index [" + ind + "]");
+  P.ultimoIndice = s => TX.ultimoIndice(s.v);
+  const fueraDeLimites = (x, ind) => new ErrorJulia("BoundsError: attempt to access " + (x.T === "Tuple" ? tipo(x) : x.T === "String" ? TX.ncodeunits(x.v) + "-codeunit " + tipo(x) : V.largo(x) + "-element " + tipo(x)) + " at index [" + ind + "]");
   P.indexa = (x, i) => {
-    if (x.T === "String") {
-      if ([...x.v].some(c => c.codePointAt(0) > 127)) throw new NoSoportado("índices en textos con acentos");
-      if (i.T === "Int64") { const k = Number(i.v); if (k < 1 || k > x.v.length) throw fueraDeLimites(x, repr(i)); return Ch(x.v[k - 1]); }
-      if (i.T === "UnitRange") { const a = Number(i.start), b = Number(i.stop); if (b >= a && (a < 1 || b > x.v.length)) throw fueraDeLimites(x, repr(i)); return S(x.v.slice(a - 1, Math.max(a - 1, b))); }
-      throw new NoSoportado("este índice en un texto");
-    }
+    if (x.T === "String") return TX.indexa(x, i);
     if (!V.esVector(x) && x.T !== "Tuple") throw errorMetodo("getindex", [x, i]);
     const n = V.largo(x);
     if (i.T === "Int64") {
@@ -548,11 +549,13 @@ export function crearPrimitivas(prog) {
     return V.vec("Int64", els.map((e, i) => e.v ? I(i + 1) : null).filter(Boolean));
   };
   fn.filter = ([f, x]) => {
+    if (x.T === "String") return S([...x.v].filter(c => { const r = prog.aplica(f, [Ch(c)], new Map()); if (r.T !== "Bool") throw new ErrorJulia("TypeError: non-boolean (" + tipo(r) + ") used in boolean context"); return r.v; }).join(""));
     if (x.T !== "Vector" && !V.esRango(x)) throw new NoSoportado("filter sobre " + tipo(x));
     const els = V.elementos(x).filter(e => { const r = prog.aplica(f, [e], new Map()); if (r.T !== "Bool") throw new ErrorJulia("TypeError: non-boolean (" + tipo(r) + ") used in boolean context"); return r.v; });
     return V.vec(V.eltipo(x), els);
   };
-  fn.map = ([f, ...xs]) => { if (xs.length !== 1) throw new NoSoportado("map con varias colecciones"); const res = P.itera(xs[0]).map(e => prog.aplica(f, [e], new Map())); if (!res.length) throw new NoSoportado("map sobre una colección vacía"); return P.recoge(res, false); };
+  fn.map = ([f, ...xs]) => { if (xs.length !== 1) throw new NoSoportado("map con varias colecciones");
+    if (xs[0].T === "String") { const r = [...xs[0].v].map(c => prog.aplica(f, [Ch(c)], new Map())); if (!r.every(e => e.T === "Char")) throw new NoSoportado("map sobre un texto con una función que no devuelve caracteres"); return S(r.map(e => e.v).join("")); } const res = P.itera(xs[0]).map(e => prog.aplica(f, [e], new Map())); if (!res.length) throw new NoSoportado("map sobre una colección vacía"); return P.recoge(res, false); };
   fn.any = ([x]) => B(P.itera(x).some(e => e.v === true));
   fn.all = ([x]) => B(P.itera(x).every(e => e.v === true));
   P.difundeF = (f, x) => V.vec("Any", P.itera(x).map(e => prog.aplica(f, [e], new Map())));
@@ -564,6 +567,7 @@ export function crearPrimitivas(prog) {
   fn["popfirst!"] = ([v]) => { mutable("popfirst!", v); if (!v.a.length) throw new ErrorJulia("ArgumentError: array must be non-empty"); return v.a.shift(); };
   fn.collect = ([x]) => {
     if (x.T === "String") return V.vec("Char", [...x.v].map(Ch));
+    if (x.T === "Iter" && x.a.every(e => e.T === "Int64")) return V.vec("Int64", [...x.a]);
     if (!V.esVector(x)) throw new NoSoportado("collect de " + tipo(x));
     return x.T === "BitVector" ? V.bitvec([...x.a]) : V.vec(V.eltipo(x), V.elementos(x));
   };
@@ -579,6 +583,7 @@ export function crearPrimitivas(prog) {
   fn.reverse = ([x]) => { if (x.T === "Vector") return V.vec(x.el, [...x.a].reverse()); if (x.T === "String") return S([...x.v].reverse().join("")); throw new NoSoportado("reverse de " + tipo(x)); };
   fn["reverse!"] = ([x]) => { mutable("reverse!", x); x.a.reverse(); return x; };
   const extremoCol = (nombre, primero) => ([x, n]) => {
+    if (n && x.T === "String") { const cs = [...x.v], k = Number(n.v); return S((primero ? cs.slice(0, k) : cs.slice(Math.max(0, cs.length - k))).join("")); }
     if (n) { if (x.T !== "Vector") throw new NoSoportado(nombre + "(x, n) de " + tipo(x)); const k = Number(n.v); return V.vec(x.el, primero ? x.a.slice(0, k) : x.a.slice(Math.max(0, x.a.length - k))); }
     if (x.T === "String") { if (!x.v.length) throw new ErrorJulia("ArgumentError: string must be non-empty"); return Ch(primero ? [...x.v][0] : [...x.v].slice(-1)[0]); }
     const els = P.itera(x);
@@ -614,7 +619,7 @@ export function crearPrimitivas(prog) {
     return { T: "Iter", nombre: "zip", a: Array.from({ length: n }, (_, i) => ({ T: "Tuple", a: ls.map(l => l[i]) })) };
   };
   fn.enumerate = ([x]) => ({ T: "Iter", nombre: "enumerate", a: P.itera(x).map((e, i) => ({ T: "Tuple", a: [I(i + 1), e] })) });
-  fn.eachindex = ([x]) => { const n = V.largo(x); return { T: "UnitRange", start: 1n, stop: BigInt(n), oneTo: true }; };
+  fn.eachindex = ([x]) => { if (x.T === "String") return { T: "Iter", nombre: "eachindex", a: TX.letras(x.v).map(e => I(e.i)) }; const n = V.largo(x); return { T: "UnitRange", start: 1n, stop: BigInt(n), oneTo: true }; };
   fn.parse = ([t, s]) => {
     if (s.T !== "String") throw errorMetodo("parse", [t, s]);
     const r = analiza(t.nombre, s.v);
@@ -623,6 +628,7 @@ export function crearPrimitivas(prog) {
   };
   fn.tryparse = ([t, s]) => { const r = analiza(t.nombre, s.v); return r.error ? NADA : r.v; };
 
+  TX.funcionesDeTexto(fn, prog);
   const tabla = new Map(Object.entries(fn).map(([k, f]) => [k, { T: "Primitiva", nombre: k, f }]));
   const constantes = { π: V.PI, pi: V.PI, ℯ: V.E, Inf: F(Infinity), NaN: F(NaN), nothing: NADA, missing: FALTA, true: B(true), false: B(false) };
   P.tiene = n => tabla.has(n) || n in constantes;

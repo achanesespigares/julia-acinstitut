@@ -77,6 +77,18 @@ pre.tz-codigo{ margin:0; font:400 14px/1.85 var(--mono); overflow-x:auto; backgr
 .tz .cas .v{ min-width:44px; height:40px; padding:0 6px; border:2px solid var(--tinta); margin-left:-2px; display:flex; align-items:center;
   justify-content:center; font:600 16px/1 var(--mono); background:#fff; transition:background .25s; }
 .tz .cas:first-child .v{ margin-left:0; }
+.tz .fila-letras{ display:flex; flex-wrap:wrap; row-gap:8px; }   /* un texto: sus letras, con el índice (de byte) de cada una */
+.tz .letra{ display:flex; flex-direction:column; gap:4px; flex:none; }
+.tz .letra .v{ height:40px; border:2px solid var(--tinta); margin-left:-2px; display:flex; align-items:center; justify-content:center;
+  font:600 16px/1 var(--mono); background:#fff; transition:background .25s; }
+.tz .letra:first-child .v{ margin-left:0; }
+.tz .letra.multi .v{ color:var(--acento); }
+.tz .letra.cambia .v{ background:var(--suave); border-color:var(--acento); }
+.tz .letra .esp{ color:var(--filete); font-weight:500; }
+.tz .letra .idx{ display:flex; justify-content:space-around; font:500 11.5px/1 var(--mono); color:var(--banda); }
+.tz .letra .idx .no{ color:var(--filete); text-decoration:line-through; }
+.tz .letra .bytes{ font:600 9px/1 var(--titulo); letter-spacing:.05em; text-transform:uppercase; color:var(--acento); text-align:center; }
+.tz .codigo{ margin-left:8px; font:500 12px/1 var(--mono); color:var(--banda); }
 .tz .fila-cas.bool{ flex-wrap:wrap; row-gap:6px; overflow-x:visible; }   /* una máscara se ve entera: sus true, en color */
 .tz .fila-cas.bool .cas .v{ min-width:0; padding:0 6px; font-size:13.5px; }
 .tz .fila-cas.bool .cas.si .v{ color:var(--acento); font-weight:700; }
@@ -178,6 +190,7 @@ const ESTILOS_JL = `
 .tz .vec-cab .loc{ font:600 9.5px/1 var(--titulo); letter-spacing:.06em; text-transform:uppercase; color:var(--banda); border:1px dashed var(--banda); border-radius:3px; padding:2px 4px; }
 .tz .escalar{ display:inline-flex; align-items:center; min-width:52px; height:40px; padding:0 10px; border:2px solid var(--tinta);
   font:600 16px/1 var(--mono); background:#fff; white-space:pre; align-self:flex-start; transition:background .25s; }
+.tz .escalar{ min-height:40px; height:auto; max-width:100%; box-sizing:border-box; overflow-wrap:anywhere; white-space:pre-wrap; padding-top:6px; padding-bottom:6px; }   /* un texto largo parte la línea */
 .tz .vec.cambia .escalar{ background:var(--suave); border-color:var(--acento); }
 .tz .vec.local.cambia .escalar{ border-style:dashed; }
 .tz .vec-cab .comparte{ font:600 11px/1.2 var(--texto); color:var(--acento); background:var(--suave); border:1px solid var(--acento); border-radius:3px; padding:2px 6px; }
@@ -207,10 +220,16 @@ const TIPOS = {
   Nothing: "la nada: " + code("nothing"), Missing: "un dato que falta: " + code("missing"),
   "Rational{Int64}": "una fracción exacta", "ComplexF64": "un número complejo", BigInt: "un entero tan grande como haga falta",
   BigFloat: "un decimal con la precisión que se pida", Irrational: "un número irracional",
+  "SubString{String}": "un trozo de otro texto, que comparte sus bytes en vez de copiarlos",
+  AbstractString: "un texto, de cualquier tipo de texto",
 };
+// un texto tal como lo escribe Julia ("canci\"ón") → el texto de verdad
+const sinComillas = r => r.slice(1, -1).replace(/\\(.)/g, (_, c) => ({ n: "\n", t: "\t", r: "\r" })[c] || c);
+const bytesDe = c => { const cp = c.codePointAt(0); return cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4; };
+const esTipoTexto = t => t === "String" || t === "SubString{String}";
 // los tipos largos (los de algunos rangos) se abrevian: StepRangeLen{Float64, …}
 const corta = t => t.length > 30 && t.includes("{") ? t.slice(0, t.indexOf("{") + 1) + t.slice(t.indexOf("{") + 1).split(",")[0].replace(/}$/, "") + ", …}" : t;
-const queEs = t => TIPOS[t] || (/^Irrational/.test(t) ? "un número irracional, guardado de forma exacta" : null);
+const queEs = t => TIPOS[t] || (/^Irrational/.test(t) ? "un número irracional, guardado de forma exacta" : /^Pair\{/.test(t) ? "una pareja, escrita con =>" : null);
 
 const PLANTILLA = `
 <div class="tz-cab"><span class="tz-tit"></span><span class="tz-etq"></span></div>
@@ -241,6 +260,7 @@ const PLANTILLA = `
 const EJEMPLOS = [
   { nombre: "Julia como calculadora", codigo: "precio = 40\ndescuento = 0.15\nfinal = precio * (1 - descuento)\nfinal\nprecio = 50\nfinal" },
   { nombre: "Vectores y el punto", codigo: "notas = [9.0, 6.5, 4.0, 7.5]\nsubida = notas .+ 0.5\naprobado = notas .>= 5\nsum(aprobado)\nmedia = sum(notas) / length(notas)" },
+  { nombre: "Letras y bytes", codigo: "s = \"canción\"\nn = length(s)\nb = ncodeunits(s)\no = s[6]\nfor c in s\n    println(c, \" \", Int(c))\nend\npalabras = split(\"El niño come\")\ns[7]" },
   { nombre: "Un bucle que suma", codigo: "notas = [9.0, 6.5, 4.0, 7.5]\ntotal = 0.0\nfor i in eachindex(notas)\n    if notas[i] >= 5\n        total += notas[i]\n    end\nend\ntotal", tabla: "i, notas[i], total" },
   { nombre: "Una función", codigo: "function media(v)\n    s = 0.0\n    for x in v\n        s += x\n    end\n    return s / length(v)\nend\n\nm = media([2, 4, 9])\nprintln(\"La media es \", m)" },
   { nombre: "b = a no copia", codigo: "a = [1, 2, 3]\nb = a\nb[1] = 100\na\nc = copy(a)\nc[1] = 0\na" },
@@ -327,7 +347,7 @@ function laboratorio(el, C) {
       if (limpia) limpia();
       const res = q(".lab-res"); res.innerHTML = "";
       const caja = document.createElement("div"); res.appendChild(caja);
-      limpia = dibujaTraza(caja, { titulo: "Tu programa, paso a paso", etiqueta: "laboratorio", columnas, fila_en: "fin_iteracion" }, t);
+      limpia = dibujaTraza(caja, { titulo: "Tu programa, paso a paso", etiqueta: "laboratorio", columnas, fila_en: "fin_iteracion", letras: true }, t);
       caja.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (e) {
       aviso("<b>El laboratorio ha fallado.</b> Es un fallo nuestro, no de tu programa. Puedes probarlo en <a href=\"" + nube + "\" target=\"_blank\" rel=\"noopener\">Julia en la nube</a>. (" + esc(e.message || e) + ")");
@@ -379,6 +399,10 @@ function dibujaTraza(el, C, D) {
     if (v.t === "function") return "una función: guarda sus instrucciones, que no se ejecutan hasta que alguien la llame";
     if (v.t === "Nothing") return "que vale " + code("nothing") + ": el valor de Julia para decir «aquí no hay nada». Su tipo es " + code("Nothing");
     if (v.t === "Missing") return "que vale " + code("missing") + ": un dato que falta. Su tipo es " + code("Missing");
+    if (v.e && esTipoTexto(v.t) && C.letras) {
+      const s = sinComillas(v.v[0]), n = [...s].length, b = [...s].reduce((k, c) => k + bytesDe(c), 0);
+      return "un " + code(v.t) + " que vale " + code(v.v[0]) + ": " + queEs(v.t) + (n ? ", con " + n + (n === 1 ? " carácter" : " caracteres") + (b !== n ? " que ocupan " + b + " bytes" : "") : ", vacío");
+    }
     if (v.e) { const t = queEs(v.t); return "un " + code(v.t) + " que vale " + code(v.v[0]) + (t ? ": " + t : ""); }
     if (v.rango) return "un rango, " + code(v.rango) + " (" + code(corta(v.t)) + "): " + longitud(v) + (longitud(v) === 1 ? " número" : " números") + " seguidos que Julia no guarda uno a uno, sino que calcula cuando se le piden";
     if (v.d) return "una matriz de " + v.d[0] + (v.d[0] === 1 ? " fila" : " filas") + " y " + v.d[1] + (v.d[1] === 1 ? " columna" : " columnas") + " (" + code(v.t) + ")";
@@ -549,7 +573,24 @@ function dibujaTraza(el, C, D) {
     const lon = v.e || v.t === "function" ? (v.t === "function" && v.m > 1 ? v.m + " métodos" : "") : v.tupla ? v.el.length + (v.el.length === 1 ? " elemento" : " elementos") : v.v ? "longitud " + longitud(v).toLocaleString("es-ES") : "";
     return '<span class="tipo" title="' + esc(v.t) + '">' + esc(v.t === "function" ? "función" : corta(v.t)) + "</span>" + (lon ? '<span class="lon">' + lon + "</span>" : "") + (v.local ? '<span class="loc">local</span>' : "");
   }
+  // un texto como fila de letras, cada una con el índice de su primer byte; los bytes de en medio no son índices válidos
+  function filaLetras(v, a) {
+    const s = sinComillas(v.v[0]), antes = a && a.e && esTipoTexto(a.t) ? sinComillas(a.v[0]) : null;
+    let i = 1, k = 0, html = '<div class="fila-letras">';
+    const previas = antes != null ? [...antes] : null;
+    for (const c of s) {
+      const n = bytesDe(c), cambia = previas && previas[k] !== c;
+      const malos = Array.from({ length: n - 1 }, (_, j) => '<span class="no" title="índice no válido">' + (i + j + 1) + "</span>").join("");
+      html += '<span class="letra' + (n > 1 ? " multi" : "") + (cambia ? " cambia" : "") + '" style="min-width:' + (30 * n) + 'px">' +
+        '<span class="v">' + (c === " " ? '<span class="esp">␣</span>' : c === "\n" ? '<span class="esp">\\n</span>' : esc(c)) + "</span>" +
+        '<span class="idx"><span>[' + i + "]</span>" + malos + "</span>" + (n > 1 ? '<span class="bytes">' + n + " bytes</span>" : "") + "</span>";
+      i += n; k++;
+    }
+    return html + "</div>";
+  }
   function valor(v, a, op = {}) {
+    if (v.e && C.letras && esTipoTexto(v.t) && v.v[0].length > 2 && [...sinComillas(v.v[0])].length <= 40) return filaLetras(v, a);
+    if (v.e && C.letras && v.t === "Char") { const c = sinComillas(v.v[0]); return '<span class="escalar">' + esc(v.v[0]) + '</span><span class="codigo">código ' + (c.length ? c.codePointAt(0) : "") + "</span>"; }
     if (v.e) return '<span class="escalar">' + esc(v.v[0]) + "</span>";
     if (v.d) return rejilla(v, a, op.celda);
     if (v.tupla) return '<div class="lista">' + v.el.map((e, i) => {

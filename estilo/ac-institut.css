@@ -35,3 +35,6 @@ article a.button{ display:inline-flex; align-items:center; gap:.4em; background:
   border-radius:0; padding:.6em 1.1em; font:600 14px/1 "Montserrat",Arial,sans-serif; text-decoration:none; }
 article a.button:hover{ background:var(--ac-oscuro) !important; }
 article a.button svg{ display:none; }
+
+/* Las tablas anchas (la de los tres lenguajes, en el móvil) se desplazan dentro de su caja, sin ensanchar la página */
+article table { display: block; max-width: 100%; overflow-x: auto; }

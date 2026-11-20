@@ -237,7 +237,7 @@ Julia y Python pasan los vectores igual: la función recibe el mismo vector, no 
 
 ## La grieta
 
-Hasta ahora casi todo han sido números. Pero los nombres de los alumnos son **textos**, y un texto también es una colección: de letras. ¿Cómo se saca la inicial de un nombre, se pone en mayúsculas, se cuenta cuántas veces aparece una letra o se parte una frase en palabras? Empieza la parte II con *Cadenas y caracteres*.
+Hasta ahora casi todo han sido números. Pero los nombres de los alumnos son **textos**, y un texto también es una colección: de letras. ¿Cómo se saca la inicial de un nombre, se pone en mayúsculas, se cuenta cuántas veces aparece una letra o se parte una frase en palabras? Empieza la parte II con [Cadenas y caracteres](06-cadenas.md).
 
 ## Ejercicios
 

@@ -22,7 +22,7 @@ Escribe tu programa, o elige un ejemplo, y pulsa **Ejecutar y ver paso a paso**.
 ```
 
 :::{note} Cómo funciona por dentro
-Julia no se puede ejecutar todavía en un navegador: antes de ejecutar cada función la compila con LLVM, un compilador enorme que no cabe aquí. Este laboratorio es un **intérprete propio**: lee tu programa con la gramática de Julia de [tree-sitter](https://tree-sitter.github.io/) y lo ejecuta siguiendo las reglas de Julia. Los enteros son de 64 bits y dan la vuelta como en Julia, los decimales usan el mismo estándar y los errores salen con el mismo texto.
+Julia no se puede ejecutar todavía en un navegador: antes de ejecutar cada función la compila con LLVM, un compilador enorme que no cabe aquí. Este laboratorio es un **intérprete propio**: lee tu programa con la gramática de Julia de [tree-sitter](https://tree-sitter.github.io/) y lo ejecuta siguiendo las reglas de Julia. Los enteros son de 64 bits y dan la vuelta como en Julia, los decimales usan el mismo estándar, los textos se cuentan en bytes de UTF-8 y los errores salen con el mismo texto.
 
 Para que no se aparte ni un milímetro de Julia, cada programa de los capítulos y un banco de pruebas se ejecutan con el intérprete y con Julia de verdad, y las dos trazas se comparan paso a paso: variables, tipos, consola y errores. Cuando algo no lo sabe hacer, **lo dice** y te manda a la nube, en lugar de inventarse un resultado. La parte que entiende crece con cada capítulo nuevo.
 :::

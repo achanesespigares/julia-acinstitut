@@ -51,6 +51,8 @@ export function tipo(x) {
     case "Tuple": return "Tuple{" + x.a.map(tipo).join(", ") + "}";
     case "Funcion": case "Primitiva": return "typeof(" + x.nombre + ")";
     case "Tipo": return "DataType";
+    case "String": return x.sub ? "SubString{String}" : "String";
+    case "Pair": return "Pair{" + tipo(x.a) + ", " + tipo(x.b) + "}";
     case "Iter": throw new NoSoportado("guardar o mostrar el resultado de " + x.nombre + "(): por ahora solo se puede recorrer con un for");
     default: return x.T;
   }
@@ -150,6 +152,8 @@ function cadena(s) {
 }
 function caracter(c) {
   const esc = { "\n": "\\n", "\t": "\\t", "'": "\\'", "\\": "\\\\", "\r": "\\r" };
+  const cp = c.codePointAt(0);
+  if (!esc[c] && (cp < 32 || cp === 127)) return "'\\x" + cp.toString(16).padStart(2, "0") + "'";
   return "'" + (esc[c] || c) + "'";
 }
 const decimalesRango = x => x.els.length ? decimal(x.start) + ":" + decimal(x.step) + ":" + decimal(x.els[x.els.length - 1]) : decimal(x.start) + ":" + decimal(x.step) + ":" + decimal(x.start - x.step);
@@ -172,12 +176,13 @@ export function repr(x, dentro = false) {
     case "FloatRange": return decimalesRango(x);
     case "Vector": case "BitVector": {
       const bools = x.T === "BitVector" || x.el === "Bool";
-      const pref = bools ? "Bool" : x.el === "Any" || !x.a.length ? x.el : "";
+      const pref = bools ? "Bool" : ["Any", "SubString{String}", "AbstractString"].includes(x.el) || !x.a.length ? x.el : "";
       return pref + "[" + x.a.map(e => bools ? (e.v ? "1" : "0") : repr(e, true)).join(", ") + "]";
     }
     case "Tuple": return "(" + x.a.map(e => repr(e, true)).join(", ") + (x.a.length === 1 ? "," : "") + ")";
     case "Funcion": case "Primitiva": return x.nombre;
     case "Tipo": return x.nombre;
+    case "Pair": return repr(x.a, true) + " => " + repr(x.b, true);
   }
   throw new NoSoportado("escribir un " + tipo(x));
 }
@@ -191,6 +196,7 @@ export function muestra(x) {
   if (x.T === "Vector" || x.T === "BitVector") {
     const n = x.a.length, t = tipo(x);
     if (!n) return x.el + "[]";
+    if (x.el === "Char") return n + "-element " + t + ":\n" + x.a.map(e => " " + caracterLargo(e.v)).join("\n");
     const bools = x.T === "BitVector" || x.el === "Bool";
     const trozos = x.a.map(e => bools ? [e.v ? "1" : "0", ""] : alinea(e, x.el));
     const izq = Math.max(...trozos.map(t => t[0].length));
@@ -211,13 +217,25 @@ function alinea(e, el) {
   if (e.T === "Rational") { const k = s.indexOf("//"); return [s.slice(0, k), s.slice(k)]; }
   return ["", s];
 }
+// ── Cómo escribe el REPL un carácter ─────────────────────────────────────
+// 'ó': Unicode U+00F3 (category Ll: Letter, lowercase)
+const CATEGORIAS = [
+  ["Lu", "Letter, uppercase"], ["Ll", "Letter, lowercase"], ["Lt", "Letter, titlecase"], ["Lm", "Letter, modifier"], ["Lo", "Letter, other"],
+  ["Mn", "Mark, nonspacing"], ["Mc", "Mark, spacing combining"], ["Me", "Mark, enclosing"],
+  ["Nd", "Number, decimal digit"], ["Nl", "Number, letter"], ["No", "Number, other"],
+  ["Pc", "Punctuation, connector"], ["Pd", "Punctuation, dash"], ["Ps", "Punctuation, open"], ["Pe", "Punctuation, close"],
+  ["Pi", "Punctuation, initial quote"], ["Pf", "Punctuation, final quote"], ["Po", "Punctuation, other"],
+  ["Sm", "Symbol, math"], ["Sc", "Symbol, currency"], ["Sk", "Symbol, modifier"], ["So", "Symbol, other"],
+  ["Zs", "Separator, space"], ["Zl", "Separator, line"], ["Zp", "Separator, paragraph"],
+  ["Cc", "Other, control"], ["Cf", "Other, format"], ["Cs", "Other, surrogate"], ["Co", "Other, private use"],
+];
+function categoria(c) {
+  for (const [ab, nombre] of CATEGORIAS) if (new RegExp("\\p{gc=" + ab + "}", "u").test(c)) return ab + ": " + nombre;
+  return "Cn: Other, not assigned";
+}
 function caracterLargo(c) {
   const cp = c.codePointAt(0), hex = cp.toString(16).toUpperCase().padStart(4, "0");
-  let cat = null;
-  if (/[a-z]/.test(c)) cat = "Ll: Letter, lowercase"; else if (/[A-Z]/.test(c)) cat = "Lu: Letter, uppercase";
-  else if (/[0-9]/.test(c)) cat = "Nd: Number, decimal digit";
-  if (!cat || cp > 127) throw new NoSoportado("mostrar el carácter " + c);
-  return caracter(c) + ": ASCII/Unicode U+" + hex + " (category " + cat + ")";
+  return caracter(c) + ": " + (cp < 128 ? "ASCII/Unicode" : "Unicode") + " U+" + hex + " (category " + categoria(c) + ")";
 }
 
 // ── Promoción de tipos (los vectores y la aritmética) ──────────────────────
@@ -225,6 +243,7 @@ const RANGO_NUM = { Bool: 0, Int64: 1, Rational: 2, Irrational: 3, Float64: 3 };
 export function promueve(tipos) {
   const u = [...new Set(tipos)];
   if (u.length === 1) return u[0] === "Irrational" ? "Float64" : u[0];
+  if (u.every(t => t === "String" || t === "SubString{String}" || t === "AbstractString")) return "AbstractString";
   if (u.every(t => t in RANGO_NUM)) {
     if (u.includes("Float64") || u.includes("Irrational")) return "Float64";
     if (u.includes("Rational")) return "Rational{Int64}";
@@ -236,8 +255,11 @@ const nombreTipo = t => t === "Rational" ? "Rational{Int64}" : t;
 // convierte un valor al tipo de las casillas de un vector (convert(T, x))
 export function convierte(x, el) {
   if (el === "Any") return x;
-  const t = nombreTipo(x.T);
+  const t = x.T === "String" ? tipo(x) : nombreTipo(x.T);
   if (t === el) return x;
+  if (x.T === "String" && el === "String") return { T: "String", v: x.v };
+  if (x.T === "String" && el === "SubString{String}") return { T: "String", v: x.v, sub: true };
+  if (x.T === "String" && el === "AbstractString") return x;
   if (el === "Float64" && esNumero(x)) return F(aNum(x));
   if (el === "Int64" && esNumero(x)) {
     if (x.T === "Bool") return I(x.v ? 1 : 0);
@@ -261,6 +283,8 @@ export function errorMetodo(f, args, cabecera) {
     t += "\nFor element-wise " + nom + ", use broadcasting with dot syntax: " + (esVector(args[0]) ? "array " + op + " scalar" : "scalar " + op + " array");
   }
   const esTipo = ["Int64", "Float64", "String", "Bool", "Char"].includes(f);
+  const concatena = f === "+" && args && args.length && args.every(a => a.T === "String")
+    ? "\nString concatenation is performed with * (See also: https://docs.julialang.org/en/v1/manual/strings/#man-concatenation)." : "";
   return new ErrorJulia(t + (esTipo ? "\nThe type `" + f + "` exists, but no method is defined for this combination of argument types when trying to construct it."
-    : "\nThe function `" + f + "` exists, but no method is defined for this combination of argument types."));
+    : "\nThe function `" + f + "` exists, but no method is defined for this combination of argument types.") + concatena);
 }
