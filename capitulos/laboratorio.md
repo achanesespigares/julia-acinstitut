@@ -17,11 +17,13 @@ En los libros de Python y de R, el laboratorio ejecuta tu código en el propio n
 
 Este botón abre un cuaderno de Jupyter con **Julia 1.13** en un ordenador de [mybinder.org](https://mybinder.org), un servicio gratuito y sin registro. Escribe en una celda y pulsa **Mayúsculas + Intro**. Los programas del libro se pueden copiar y pegar tal cual.
 
-{button}`Abrir Julia en la nube <https://mybinder.org/v2/gh/achanesespigares/julia-acinstitut/laboratorio?urlpath=lab/tree/laboratorio/laboratorio.ipynb>`
+{button}`Abrir Julia en la nube <https://2i2c.mybinder.org/v2/gh/achanesespigares/julia-acinstitut/laboratorio?urlpath=lab/tree/laboratorio/laboratorio.ipynb>`
+
+Si no arranca, prueba con la [dirección general de Binder](https://mybinder.org/v2/gh/achanesespigares/julia-acinstitut/laboratorio?urlpath=lab/tree/laboratorio/laboratorio.ipynb), que elige uno de sus servidores.
 
 Ten en cuenta tres cosas:
 
-- **Tarda en arrancar.** Binder prepara un ordenador para ti: lo normal es entre uno y unos pocos minutos. Si el servicio está muy ocupado, puede tardar más o no arrancar; vuelve a intentarlo un rato después.
+- **Tarda en arrancar.** Binder prepara un ordenador para ti: en nuestras pruebas, unos cuatro minutos. Si el servicio está muy ocupado, puede tardar más o no arrancar; vuelve a intentarlo un rato después.
 - **Es temporal.** Si dejas la sesión un rato sin usar, se cierra y lo que hayas escrito se pierde. Para guardarlo, descarga el cuaderno (*File → Download*).
 - **No lo hemos hecho nosotros.** mybinder.org es un servicio público de la comunidad de Jupyter, financiado con donaciones. Úsalo con cariño.
 
