@@ -6,6 +6,7 @@
 import * as V from "./valores.mjs";
 import * as TX from "./textos.mjs";
 import * as DC from "./dict.mjs";
+import * as MX from "./matrices.mjs";
 import { ErrorJulia, NoSoportado, I, F, B, S, Ch, NADA, FALTA, errorMetodo, aNum, tipo, repr } from "./valores.mjs";
 
 const T = nombre => ({ T: "Tipo", nombre });
@@ -18,7 +19,7 @@ export const TIPOS = {
 export const CONOCIDAS = new Set(("big BigInt BigFloat Float32 Int32 Int8 UInt8 UInt Complex complex im rand randn seed! Random mean median std var " +
   "Set lpad rpad " +
   "chomp reduce foldl foldr mapreduce accumulate cumsum cumprod diff unique sortperm argmax argmin extrema " +
-  "Matrix Array transpose reshape hcat vcat size ndims axes vec dot cross norm inv det LinearAlgebra Statistics plot println_ " +
+  "Matrix Array axes dot cross norm inv det LinearAlgebra Statistics plot println_ " +
   "struct mutable abstract typeof_ isa eltype convert promote sizeof summarysize objectid ismutable deepcopy view @view @views similar " +
   "ifelse iterate Iterators sum! maximum! push !== === try catch error throw rethrow DomainError ArgumentError " +
   "time @time @elapsed @btime sleep open read write readline readlines eachline isfile").split(" "));
@@ -58,6 +59,7 @@ export function crearPrimitivas(prog) {
       if (x.T === "Float64" || x.T === "Irrational") return F(-aNum(x));
       if (x.T === "Rational") return V.rac(-x.n, x.d);
       if (x.T === "Vector" && op === "-" && x.a.every(NUM)) return P.recoge(x.a.map(e => P.unaria("-", e)));
+      if (MX.esMatriz(x) && op === "-") { const [f, c] = MX.dims(x), r = P.recoge(MX.lineal(x).map(e => P.unaria("-", e))); return MX.mat(r.el, f, c, r.a); }
       throw errorMetodo(op, [x]);
     }
     if (op === "!") { if (x.T === "Bool") return B(!x.v); if (x.T === "Missing") return FALTA; throw errorMetodo("!", [x]); }
@@ -87,6 +89,7 @@ export function crearPrimitivas(prog) {
       if (b.v < 0n) throw new ErrorJulia("ArgumentError: can't repeat a string " + b.v + " times");
       return S(a.v.repeat(Number(b.v)));
     }
+    if (MX.esMatriz(a) || MX.esMatriz(b)) return P.aritmeticaMatrices(op, a, b);
     if (V.esVector(a) || V.esVector(b)) return P.aritmeticaVectores(op, a, b);
     if (op === "&" && a.T === "Bool" && b.T === "Bool") return B(a.v && b.v);
     if (op === "|" && a.T === "Bool" && b.T === "Bool") return B(a.v || b.v);
@@ -178,6 +181,7 @@ export function crearPrimitivas(prog) {
       if (a.T === "Irrational" && b.T === "Irrational") return a.nombre === b.nombre;
       return aNum(a) === aNum(b);
     }
+    if (MX.esMatriz(a) || MX.esMatriz(b)) return P.igualesM(a, b);
     if (V.esVector(a) && V.esVector(b)) {
       const n = V.largo(a); if (n !== V.largo(b)) return false;
       for (let i = 1; i <= n; i++) if (!P.iguales(V.elemento(a, i), V.elemento(b, i))) return false;
@@ -194,7 +198,8 @@ export function crearPrimitivas(prog) {
     return a === b;
   };
   P.identicos = (a, b) => {
-    if (a.T === "Vector" || a.T === "BitVector") return a === b;
+    if (MX.esVista(a) && MX.esVista(b)) return a.vista === b.vista && a.p === b.p;     // A' === A' (la vista no tiene identidad propia)
+    if (a.T === "Vector" || a.T === "BitVector" || a.T === "Matrix") return a === b;
     if (a.T !== b.T) return false;
     if (a.T === "Float64") return Object.is(a.v, b.v);
     return P.iguales(a, b);
@@ -250,7 +255,7 @@ export function crearPrimitivas(prog) {
     }
     if (col.T === "Claves" && col.que === "keys") return B(col.d.t.indice(x) > 0);
     if (col.T === "Claves" || col.T === "NamedTuple") { for (const e of P.itera(col)) if (P.binaria("==", x, e).v === true) return B(true); return B(false); }
-    if (!V.esVector(col) && col.T !== "Tuple") throw new NoSoportado("∈ con " + tipo(col));
+    if (!V.esVector(col) && col.T !== "Tuple" && !MX.esMatriz(col)) throw new NoSoportado("∈ con " + tipo(col));
     let falta = false;
     for (const e of P.itera(col)) { const r = P.binaria("==", x, e); if (r.T === "Missing") falta = true; else if (r.v) return B(true); }
     return falta ? FALTA : B(false);
@@ -259,6 +264,7 @@ export function crearPrimitivas(prog) {
   // ── El punto (broadcasting) ──────────────────────────────────────────
   P.difunde = (f, args, kw = new Map()) => {
     const aplica = xs => typeof f === "string" ? P.binaria(f, xs[0], xs[1]) : prog.aplica(f, xs, kw);
+    if (args.some(MX.esMatriz)) return P.difunde2(aplica, args);
     const vecs = args.filter(a => V.esVector(a));
     if (!vecs.length) return aplica(args);
     const lens = args.map(a => V.esVector(a) ? V.largo(a) : null);
@@ -284,6 +290,7 @@ export function crearPrimitivas(prog) {
     return P.recoge(res, true);
   };
   P.difundeAsignacion = (destino, v) => {
+    if (MX.esMatriz(destino)) { P.difundeAsignacionM(destino, v); return; }
     if (destino.T !== "Vector") throw new NoSoportado(".= sobre " + tipo(destino));
     const n = destino.a.length;
     for (let i = 0; i < n; i++) destino.a[i] = V.convierte(V.esVector(v) ? V.elemento(v, V.largo(v) === 1 ? 1 : i + 1) : v, destino.el);
@@ -291,6 +298,7 @@ export function crearPrimitivas(prog) {
   // Un vector con los resultados: el tipo de sus casillas sale de los valores (Bool con el punto → BitVector)
   P.recoge = (res, bits = false) => {
     if (!res.length) throw new NoSoportado("un vector vacío sin tipo");
+    if (res.some(MX.esMatriz)) throw new NoSoportado("un vector de matrices");
     const tipos = [...new Set(res.map(r => r.T === "Rational" ? "Rational{Int64}" : r.T === "Vector" || r.T === "String" || r.T === "Pair" ? tipo(r) : r.T))];
     if (tipos.length > 1 && tipos.every(t => t === "String" || t === "SubString{String}")) return V.vec("AbstractString", res);
     if (tipos.length === 1) {
@@ -304,6 +312,7 @@ export function crearPrimitivas(prog) {
   // ── Vectores, rangos e índices ───────────────────────────────────────
   P.vectorLiteral = vals => {
     if (!vals.length) return V.vec("Any", []);
+    if (vals.some(v => MX.esMatriz(v))) throw new NoSoportado("un vector de matrices");
     if (vals.some(v => V.esVector(v) || v.T === "Tuple")) throw new NoSoportado("vectores de vectores (o concatenar con [a, b])");
     const tipos = vals.map(v => v.T === "Rational" ? "Rational{Int64}" : v.T === "String" || v.T === "Pair" ? tipo(v) : v.T);
     if (tipos.some(t => t === "Nothing" || t === "Missing") && new Set(tipos).size > 1) throw new NoSoportado("vectores con nothing o missing mezclados (Union)");
@@ -322,6 +331,7 @@ export function crearPrimitivas(prog) {
   };
   P.itera = x => {
     if (V.esVector(x) || x.T === "Tuple") return V.elementos(x);
+    if (MX.esMatriz(x)) return [...MX.lineal(x)];          // por columnas, como Julia
     if (x.T === "Iter") return x.a;
     if (x.T === "Dict") return x.t.entradas().map(([k, v]) => ({ T: "Pair", a: k, b: v }));
     if (x.T === "Claves") return x.d.t.entradas().map(([k, v]) => x.que === "keys" ? k : v);
@@ -334,8 +344,11 @@ export function crearPrimitivas(prog) {
   P.ultimoIndice = s => TX.ultimoIndice(s.v);
   const fueraDeLimites = (x, ind) => new ErrorJulia("BoundsError: attempt to access " + (x.T === "Tuple" ? tipo(x) : x.T === "String" ? TX.ncodeunits(x.v) + "-codeunit " + tipo(x) : V.largo(x) + "-element " + tipo(x)) + " at index [" + ind + "]");
   P.indexa = (x, i) => {
+    if (i.T === "Indices2") return P.indexa2(x, ...i.a);
+    if (i.T === "Colon" && V.esVector(x) && !V.esRango(x)) return x.T === "BitVector" ? V.bitvec([...x.a]) : V.vec(x.el, [...x.a]);
     if (x.T === "String") return TX.indexa(x, i);
     if (x.T === "Dict") return P.indexaDict(x, i);
+    if (MX.esMatriz(x)) return P.indexaLineal(x, i);
     if (x.T === "NamedTuple") { if (i.T !== "Int64") throw new NoSoportado("este índice en una tupla con nombre"); const k = Number(i.v); if (k < 1 || k > x.a.length) throw new ErrorJulia("BoundsError: attempt to access " + tipo(x) + " at index [" + k + "]"); return x.a[k - 1]; }
     if (!V.esVector(x) && x.T !== "Tuple") throw errorMetodo("getindex", [x, i]);
     const n = V.largo(x);
@@ -363,7 +376,10 @@ export function crearPrimitivas(prog) {
     throw new ErrorJulia("ArgumentError: invalid index: " + repr(i) + " of type " + tipo(i));
   };
   P.ponIndice = (x, i, v, punto = false) => {
+    if (i.T === "Indices2") { P.ponIndice2(x, ...i.a, v, punto); return; }
+    if (i.T === "Colon" && (x.T === "Vector" || x.T === "BitVector")) i = V.rangoEnteros(1n, null, BigInt(x.a.length));
     if (x.T === "Dict") { if (punto) throw new NoSoportado("d[k] .= v en un Dict"); P.ponDict(x, i, v); return; }
+    if (MX.esMatriz(x)) { P.ponLineal(x, i, v, punto); return; }
     if (x.T === "Tuple" || x.T === "NamedTuple") throw errorMetodo("setindex!", [x, v, i]);
     if (x.T === "String") throw errorMetodo("setindex!", [x, v, i]);
     if (V.esRango(x)) throw new ErrorJulia("CanonicalIndexError: setindex! not defined for " + tipo(x));
@@ -410,7 +426,11 @@ export function crearPrimitivas(prog) {
       case "String": case "AbstractString": return v.T === "String";
       case "AbstractVector": return V.esVector(v);
       case "Vector": return v.T === "Vector";
+      case "AbstractMatrix": return MX.esMatriz(v);
+      case "Matrix": return MX.esMatriz(v) && !v.vista && !v.bit;
+      case "AbstractArray": return MX.esMatriz(v) || V.esVector(v);
     }
+    if (/^Matrix\{(\w+)\}$/.test(tt)) return MX.esMatriz(v) && !v.vista && !v.bit && v.el === tt.slice(7, -1);
     if (/^Vector\{(\w+)\}$/.test(tt)) return v.T === "Vector" && v.el === tt.slice(7, -1);
     throw new NoSoportado("el tipo " + t + " en un argumento");
   };
@@ -444,8 +464,13 @@ export function crearPrimitivas(prog) {
       const m = /^Vector\{(.+)\}$/.exec(x.nombre);
       if (m) return x.nombre + " (alias for Array{" + m[1] + ", 1})";
       if (x.nombre === "BitVector") return "BitVector (alias for BitArray{1})";
+      const mm = /^Matrix\{(.+)\}$/.exec(x.nombre);
+      if (mm) return x.nombre + " (alias for Array{" + mm[1] + ", 2})";
+      if (x.nombre === "BitMatrix") return "BitMatrix (alias for BitArray{2})";
       return x.nombre;
     }
+    if (x.T === "VistaRara") throw new NoSoportado("escribir esta vista (view)");
+    if (x.vistaTxt) { const t = V.muestra(x), k = t.indexOf(":\n"); return (MX.esMatriz(x) ? MX.forma(x) : V.largo(x) + "-element") + " " + x.vistaTxt + " with eltype " + V.eltipo(x) + t.slice(k); }
     return V.muestra(x);
   };
 
@@ -537,11 +562,20 @@ export function crearPrimitivas(prog) {
   fn.isapprox = ([a, b], kw) => { if (kw.size) throw new NoSoportado("isapprox con tolerancias"); return B(P.aprox(a, b)); };
   fn.string = args => S(args.map(V.texto).join(""));
   fn.repeat = ([s, n]) => P.binaria("^", s, n);
-  fn.length = args => { if (args.length !== 1) throw errorMetodo("length", args); const [x] = args; if (NUM(x)) return I(1); if (!V.esVector(x) && !["String", "Tuple", "Dict", "Claves", "NamedTuple"].includes(x.T)) throw errorMetodo("length", args); return I(V.largo(x)); };
+  fn.length = args => { if (args.length !== 1) throw errorMetodo("length", args); const [x] = args; if (NUM(x)) return I(1); if (!V.esVector(x) && !["String", "Tuple", "Dict", "Claves", "NamedTuple", "Matrix"].includes(x.T)) throw errorMetodo("length", args); return I(V.largo(x)); };
   fn.isempty = ([x]) => B(V.largo(x) === 0);
-  const coleccion = (nombre, x) => { if (x.T === "Claves" || x.T === "NamedTuple" || x.T === "Iter") return P.itera(x); if (!V.esVector(x) && x.T !== "Tuple") { if (NUM(x)) return [x]; throw errorMetodo(nombre, [x]); } return P.itera(x); };
+  const coleccion = (nombre, x) => { if (MX.esMatriz(x)) return [...MX.lineal(x)]; if (x.T === "Claves" || x.T === "NamedTuple" || x.T === "Iter") return P.itera(x); if (!V.esVector(x) && x.T !== "Tuple") { if (NUM(x)) return [x]; throw errorMetodo(nombre, [x]); } return P.itera(x); };
   const VACIO = "ArgumentError: reducing over an empty collection is not allowed; consider supplying `init` to the reducer";
+  const conDims = (nombre, args, kw, base) => {
+    if (!kw || !kw.has("dims")) return null;
+    if (kw.size !== 1 || args.length !== 1) throw new NoSoportado(nombre + " con estas opciones");
+    const [x] = args, d = kw.get("dims");
+    if (d.T !== "Int64") throw new NoSoportado(nombre + " con dims = " + repr(d));
+    if (!MX.esMatriz(x)) { if (V.esVector(x) && d.v === 1n) return V.vec(V.eltipo(x) === "Bool" ? "Int64" : V.eltipo(x), [base([x])]); throw new NoSoportado(nombre + "(…; dims) de un " + tipo(x)); }
+    return P.reduceDims(nombre, x, d, base);
+  };
   fn.sum = (args, kw) => {
+    { const r = conDims("sum", args, kw, a => fn.sum(a, new Map())); if (r) return r; }
     if (args.length === 2) return fn.sum([P.difundeF(args[0], args[1])], kw);
     const [x] = args; const els = coleccion("sum", x);
     if (!els.length) { const el = V.eltipo(x); if (el === "Float64") return F(0); if (el === "Int64" || el === "Bool") return I(0); throw new ErrorJulia(VACIO); }
@@ -549,8 +583,9 @@ export function crearPrimitivas(prog) {
     if (els.every(e => e.T === "Float64")) return F(sumaPareada(els.map(e => e.v)));
     return els.slice(1).reduce((a, b) => P.binaria("+", a, b), els[0].T === "Bool" ? I(els[0].v ? 1 : 0) : els[0]);
   };
-  fn.prod = ([x]) => { const els = coleccion("prod", x); if (!els.length) { const el = V.eltipo(x); if (el === "Float64") return F(1); if (el === "Int64") return I(1); throw new ErrorJulia(VACIO); } return els.slice(1).reduce((a, b) => P.binaria("*", a, b), els[0]); };
-  const extremo = (nombre, mayor) => (args) => {
+  fn.prod = (args, kw) => { { const r = conDims("prod", args, kw, a => fn.prod(a, new Map())); if (r) return r; } const [x] = args; const els = coleccion("prod", x); if (!els.length) { const el = V.eltipo(x); if (el === "Float64") return F(1); if (el === "Int64") return I(1); throw new ErrorJulia(VACIO); } return els.slice(1).reduce((a, b) => P.binaria("*", a, b), els[0]); };
+  const extremo = (nombre, mayor) => (args, kw) => {
+    { const r = conDims(nombre, args, kw, a => fn[nombre](a, new Map())); if (r) return r; }
     if (args.length === 2) return fn[nombre]([P.difundeF(args[0], args[1])], new Map());
     const els = coleccion(nombre, args[0]);
     if (!els.length) throw new ErrorJulia(VACIO);
@@ -570,6 +605,7 @@ export function crearPrimitivas(prog) {
     return I(els.filter(e => e.v).length);
   };
   fn.findall = (args) => {
+    if (MX.esMatriz(args[args.length - 1])) throw new NoSoportado("findall en una matriz (Julia da CartesianIndex)");
     const els = args.length === 2 ? P.itera(args[1]).map(e => prog.aplica(args[0], [e], new Map())) : P.itera(args[0]);
     if (!els.every(e => e.T === "Bool")) throw new NoSoportado("findall con valores que no son true o false");
     return V.vec("Int64", els.map((e, i) => e.v ? I(i + 1) : null).filter(Boolean));
@@ -581,7 +617,7 @@ export function crearPrimitivas(prog) {
     return V.vec(V.eltipo(x), els);
   };
   fn.map = ([f, ...xs]) => { if (xs.length !== 1) throw new NoSoportado("map con varias colecciones");
-    if (xs[0].T === "String") { const r = [...xs[0].v].map(c => prog.aplica(f, [Ch(c)], new Map())); if (!r.every(e => e.T === "Char")) throw new NoSoportado("map sobre un texto con una función que no devuelve caracteres"); return S(r.map(e => e.v).join("")); } const res = P.itera(xs[0]).map(e => prog.aplica(f, [e], new Map())); if (!res.length) throw new NoSoportado("map sobre una colección vacía"); return P.recoge(res, false); };
+    if (xs[0].T === "String") { const r = [...xs[0].v].map(c => prog.aplica(f, [Ch(c)], new Map())); if (!r.every(e => e.T === "Char")) throw new NoSoportado("map sobre un texto con una función que no devuelve caracteres"); return S(r.map(e => e.v).join("")); } const res = P.itera(xs[0]).map(e => prog.aplica(f, [e], new Map())); if (!res.length) throw new NoSoportado("map sobre una colección vacía"); const r = P.recoge(res, false); if (MX.esMatriz(xs[0])) { const [nf, nc] = MX.dims(xs[0]); return MX.mat(r.el, nf, nc, r.a); } return r; };
   fn.any = ([x]) => B(P.itera(x).some(e => e.v === true));
   fn.all = ([x]) => B(P.itera(x).every(e => e.v === true));
   P.difundeF = (f, x) => V.vec("Any", P.itera(x).map(e => prog.aplica(f, [e], new Map())));
@@ -592,6 +628,7 @@ export function crearPrimitivas(prog) {
   fn["pop!"] = ([v]) => { mutable("pop!", v); if (!v.a.length) throw new ErrorJulia("ArgumentError: array must be non-empty"); return v.a.pop(); };
   fn["popfirst!"] = ([v]) => { mutable("popfirst!", v); if (!v.a.length) throw new ErrorJulia("ArgumentError: array must be non-empty"); return v.a.shift(); };
   fn.collect = ([x]) => {
+    if (MX.esMatriz(x)) { const [nf, nc] = MX.dims(x); return MX.mat(x.bit || (x.vista && x.p.T === "BitVector") ? "Bool" : MX.eltipoM(x), nf, nc, [...MX.lineal(x)], !!x.bit); }
     if (x.T === "String") return V.vec("Char", [...x.v].map(Ch));
     if (x.T === "Iter" && x.a.every(e => e.T === "Int64")) return V.vec("Int64", [...x.a]);
     if (x.T === "Dict") return V.vec("Pair{" + x.K + ", " + x.V + "}", P.itera(x));
@@ -599,7 +636,7 @@ export function crearPrimitivas(prog) {
     if (!V.esVector(x)) throw new NoSoportado("collect de " + tipo(x));
     return x.T === "BitVector" ? V.bitvec([...x.a]) : V.vec(V.eltipo(x), V.elementos(x));
   };
-  fn.copy = ([x]) => { if (x.T === "Dict") return { T: "Dict", K: x.K, V: x.V, t: x.t.copia() }; if (x.T === "Vector") return V.vec(x.el, [...x.a]); if (x.T === "BitVector") return V.bitvec([...x.a]); if (V.esEscalar(x) || V.esRango(x)) return x; throw new NoSoportado("copy de " + tipo(x)); };
+  fn.copy = ([x]) => { if (MX.esMatriz(x)) { if (x.vista) throw new NoSoportado("copy de una vista (A')"); return MX.mat(x.el, x.f, x.c, [...x.a], x.bit); } if (x.T === "Dict") return { T: "Dict", K: x.K, V: x.V, t: x.t.copia() }; if (x.T === "Vector") return V.vec(x.el, [...x.a]); if (x.T === "BitVector") return V.bitvec([...x.a]); if (V.esEscalar(x) || V.esRango(x)) return x; throw new NoSoportado("copy de " + tipo(x)); };
   const ordena = (els, kw) => {
     const rev = kw.get("rev"); if ([...kw.keys()].some(k => k !== "rev")) throw new NoSoportado("sort con esas opciones");
     const nan = e => e.T === "Float64" && Number.isNaN(e.v);
@@ -623,13 +660,15 @@ export function crearPrimitivas(prog) {
   const relleno = (nombre, valor) => (args) => {
     let el = "Float64", n = args[0];
     if (args[0].T === "Tipo") { el = args[0].nombre; n = args[1]; }
-    if (args.length > (args[0].T === "Tipo" ? 2 : 1)) throw new NoSoportado(nombre + " con varias dimensiones (matrices)");
-    if (n.T !== "Int64") throw errorMetodo(nombre, args);
+    const resto = args.slice(args[0].T === "Tipo" ? 2 : 1);
+    if (resto.length > 1) throw new NoSoportado(nombre + " con más de dos dimensiones");
+    if (n.T !== "Int64" || (resto.length && resto[0].T !== "Int64")) throw errorMetodo(nombre, args);
+    if (resto.length) return P.rellenaM(el, V.convierte(I(valor), el), Number(n.v), Number(resto[0].v));
     return V.vec(el, Array.from({ length: Number(n.v) }, () => V.convierte(I(valor), el)));
   };
   fn.zeros = relleno("zeros", 0);
   fn.ones = relleno("ones", 1);
-  fn.fill = ([x, n, ...resto]) => { if (resto.length) throw new NoSoportado("fill con varias dimensiones (matrices)"); const el = x.T === "Rational" ? "Rational{Int64}" : x.T; if (V.esVector(x)) throw new NoSoportado("fill con un vector"); return V.vec(el, Array.from({ length: Number(n.v) }, () => x)); };
+  fn.fill = ([x, n, ...resto]) => { if (resto.length > 1) throw new NoSoportado("fill con más de dos dimensiones"); if (resto.length) { if (V.esVector(x) || MX.esMatriz(x)) throw new NoSoportado("fill con un arreglo"); return P.rellenaM(x.T === "Rational" ? "Rational{Int64}" : x.T, x, Number(n.v), Number(resto[0].v)); } const el = x.T === "Rational" ? "Rational{Int64}" : x.T; if (V.esVector(x)) throw new NoSoportado("fill con un vector"); return V.vec(el, Array.from({ length: Number(n.v) }, () => x)); };
   fn.range = (args, kw) => {
     const [a, b] = args;
     if (args.length === 2 && kw.has("length") && kw.size === 1) {
@@ -658,6 +697,7 @@ export function crearPrimitivas(prog) {
 
   TX.funcionesDeTexto(fn, prog);
   DC.funcionesDeDict(fn, P, prog);
+  MX.operacionesDeMatrices(P, fn, prog);
   const tabla = new Map(Object.entries(fn).map(([k, f]) => [k, { T: "Primitiva", nombre: k, f }]));
   const constantes = { π: V.PI, pi: V.PI, ℯ: V.E, Inf: F(Infinity), NaN: F(NaN), nothing: NADA, missing: FALTA, true: B(true), false: B(false) };
   P.tiene = n => tabla.has(n) || n in constantes;

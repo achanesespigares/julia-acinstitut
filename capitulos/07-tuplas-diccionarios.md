@@ -201,7 +201,7 @@ Python guarda el orden de inserción desde la versión 3.7; Julia, no. Y las lis
 
 ## La grieta
 
-Las notas de un curso caben en un vector y las parejas nombre-nota, en un diccionario. Pero las notas de varios exámenes de todo un curso forman una **tabla**: una fila por alumno y una columna por examen. ¿Cómo se guarda una cuadrícula de números, se suma por filas o por columnas, o se multiplica? Hace falta una estructura con dos índices: la **matriz**, en *Matrices*.
+Las notas de un curso caben en un vector y las parejas nombre-nota, en un diccionario. Pero las notas de varios exámenes de todo un curso forman una **tabla**: una fila por alumno y una columna por examen. ¿Cómo se guarda una cuadrícula de números, se suma por filas o por columnas, o se multiplica? Hace falta una estructura con dos índices: la **matriz**, en [Matrices](08-matrices.md).
 
 ## Ejercicios
 

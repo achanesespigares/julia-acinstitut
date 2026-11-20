@@ -29,6 +29,7 @@ project:
       children:
         - file: capitulos/06-cadenas.md
         - file: capitulos/07-tuplas-diccionarios.md
+        - file: capitulos/08-matrices.md
 site:
   template: book-theme
   options:

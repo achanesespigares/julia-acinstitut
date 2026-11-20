@@ -26,6 +26,8 @@ export const FALTA = { T: "Missing" };
 export const PI = { T: "Irrational", nombre: "π", v: Math.PI };
 export const E = { T: "Irrational", nombre: "ℯ", v: Math.E };
 let nobj = 0;      // cada objeto mutable (vector) lleva un número propio, como su dirección en memoria
+// matrices.mjs rellena GANCHOS al cargarse (así valores.mjs no la importa y no hay un ciclo)
+export const GANCHOS = {};
 export const vec = (el, a) => ({ T: "Vector", el, a, oid: ++nobj });
 export const bitvec = a => ({ T: "BitVector", el: "Bool", a, oid: ++nobj });
 export function rac(n, d) {
@@ -54,6 +56,7 @@ export function tipo(x) {
     case "String": return x.sub ? "SubString{String}" : "String";
     case "Pair": return "Pair{" + tipo(x.a) + ", " + tipo(x.b) + "}";
     case "Dict": return "Dict{" + x.K + ", " + x.V + "}";
+    case "Matrix": return GANCHOS.tipoM(x);
     case "Claves": return x.que === "keys" ? "Base.KeySet{" + x.d.K + ", " + tipo(x.d) + "}" : "Base.ValueIterator{" + tipo(x.d) + "}";
     case "NamedTuple": return "@NamedTuple{" + x.nombres.map((n, i) => n + "::" + tipo(x.a[i])).join(", ") + "}";
     case "Iter": throw new NoSoportado("guardar o mostrar el resultado de " + x.nombre + "(): por ahora solo se puede recorrer con un for");
@@ -65,7 +68,7 @@ export const esEscalar = x => esNumero(x) || ["String", "Char", "Nothing", "Miss
 export const esRango = x => ["UnitRange", "StepRange", "FloatRange"].includes(x.T);
 export const esVector = x => x.T === "Vector" || x.T === "BitVector" || esRango(x);
 export const esFuncion = x => x.T === "Funcion" || x.T === "Primitiva";
-export const eltipo = x => x.T === "Vector" ? x.el : x.T === "BitVector" ? "Bool" : x.T === "FloatRange" ? "Float64" : esRango(x) ? "Int64" : "Any";
+export const eltipo = x => x.T === "Matrix" ? GANCHOS.eltipoM(x) : x.T === "Vector" ? x.el : x.T === "BitVector" ? "Bool" : x.T === "FloatRange" ? "Float64" : esRango(x) ? "Int64" : "Any";
 
 // ── Rangos ─────────────────────────────────────────────────────────────────
 export function rangoEnteros(a, s, b) {        // a:b o a:s:b con enteros (BigInt)
@@ -114,6 +117,7 @@ export function largo(x) {
   if (x.T === "FloatRange") return x.els.length;
   if (x.T === "String") return [...x.v].length;
   if (x.T === "Dict") return x.t.count;
+  if (x.T === "Matrix") return GANCHOS.dims(x).reduce((a, b) => a * b, 1);
   if (x.T === "Claves") return x.d.t.count;
   if (x.T === "NamedTuple") return x.a.length;
   throw new NoSoportado("length de " + tipo(x));
@@ -130,14 +134,19 @@ export const elementos = x => Array.from({ length: largo(x) }, (_, i) => element
 // ── Cómo escribe Julia un número decimal ───────────────────────────────────
 // Los dígitos son los mínimos que permiten recuperar el número (lo mismo que hace JavaScript); el formato
 // es fijo si el exponente está entre −4 y 5 y científico (1.0e6) si no.
-export function decimal(x) {
+export function decimal(x, compacto = false) {
   if (Number.isNaN(x)) return "NaN";
   if (x === Infinity) return "Inf";
   if (x === -Infinity) return "-Inf";
   if (x === 0) return Object.is(x, -0) ? "-0.0" : "0.0";
   const sg = x < 0 ? "-" : "";
   const [m, ex] = Math.abs(x).toExponential().split("e");
-  const dig = m.replace(".", ""), e = parseInt(ex, 10);
+  let dig = m.replace(".", ""), e = parseInt(ex, 10);
+  if (compacto && dig.length > 6) {
+    let d = BigInt(dig.slice(0, 6)) + (dig[6] >= "5" ? 1n : 0n);
+    if (d === 1000000n) { d = 100000n; e += 1; }
+    dig = d.toString().replace(/0+$/, "") || "0";
+  }
   if (e >= -4 && e <= 5) {
     if (e >= 0) {
       const ent = dig.slice(0, e + 1).padEnd(e + 1, "0"), fr = dig.slice(e + 1);
@@ -189,6 +198,7 @@ export function repr(x, dentro = false) {
     case "Funcion": case "Primitiva": return x.nombre;
     case "Tipo": return x.nombre;
     case "Pair": return repr(x.a, true) + " => " + repr(x.b, true);
+    case "Matrix": return GANCHOS.reprM(x);
     case "Dict": {
       const es = x.t.entradas();
       const pref = es.length && implicito(x.K) && implicito(x.V) ? "Dict" : tipo(x);
@@ -257,6 +267,7 @@ export const texto = x => x.T === "String" || x.T === "Char" ? x.v : repr(x);
 export function muestra(x) {
   if (x.T === "Char") return caracterLargo(x.v);
   if (x.T === "Dict") return muestraDict(x);
+  if (x.T === "Matrix") return GANCHOS.muestraM(x);
   if (x.T === "Claves") return muestraClaves(x);
   if (x.T === "Vector" || x.T === "BitVector") {
     const n = x.a.length, t = tipo(x);
@@ -307,7 +318,8 @@ function caracterLargo(c) {
 // ── Promoción de tipos (los vectores y la aritmética) ──────────────────────
 const RANGO_NUM = { Bool: 0, Int64: 1, Rational: 2, Irrational: 3, Float64: 3 };
 export function promueve(tipos) {
-  const u = [...new Set(tipos)];
+  const u = [...new Set(tipos.map(t => t === "Rational{Int64}" ? "Rational" : t))];
+  if (u.length === 1 && u[0] === "Rational") return "Rational{Int64}";
   if (u.length === 1) return u[0] === "Irrational" ? "Float64" : u[0];
   if (u.every(t => t === "String" || t === "SubString{String}" || t === "AbstractString")) return "AbstractString";
   if (u.some(t => t.startsWith("Pair{"))) throw new NoSoportado("un vector de parejas de tipos distintos");
@@ -345,9 +357,10 @@ const PISTAS = {
 };
 export function errorMetodo(f, args, cabecera) {
   let t = "MethodError: " + (cabecera || "no method matching " + f + "(" + args.map(a => "::" + tipo(a)).join(", ") + ")");
-  if (args && PISTAS[f] && args.length === 2 && (esVector(args[0]) !== esVector(args[1]))) {
+  const arr = x => esVector(x) || x.T === "Matrix";
+  if (args && PISTAS[f] && args.length === 2 && (arr(args[0]) !== arr(args[1]))) {
     const [nom, op] = PISTAS[f];
-    t += "\nFor element-wise " + nom + ", use broadcasting with dot syntax: " + (esVector(args[0]) ? "array " + op + " scalar" : "scalar " + op + " array");
+    t += "\nFor element-wise " + nom + ", use broadcasting with dot syntax: " + (arr(args[0]) ? "array " + op + " scalar" : "scalar " + op + " array");
   }
   const esTipo = ["Int64", "Float64", "String", "Bool", "Char"].includes(f);
   const concatena = f === "+" && args && args.length && args.every(a => a.T === "String")

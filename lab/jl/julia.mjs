@@ -12,6 +12,7 @@
 import * as V from "./valores.mjs";
 import { ErrorJulia, NoSoportado, I, F, B, S, Ch, NADA, FALTA } from "./valores.mjs";
 import { crearPrimitivas, TIPOS, CONOCIDAS } from "./primitivas.mjs";
+import * as MX from "./matrices.mjs";
 
 const LIMITE = 2000;
 class Retorno { constructor(v) { this.v = v; } }
@@ -23,6 +24,16 @@ const COMPARA = new Set(["<", ">", "<=", ">=", "==", "!=", "≠", "≤", "≥", 
 const prec = op => COMPARA.has(op.replace(/^\./, "")) ? 7 : (PREC[op] ?? PREC[op.replace(/^\./, "")] ?? 12);
 
 const hijos = n => { const r = []; for (let i = 0; i < n.namedChildCount; i++) { const c = n.namedChild(i); if (c.type !== "line_comment" && c.type !== "block_comment" && c.type !== "operator") r.push(c); } return r; };
+// los índices de A[i, :]: el : suelto es un nodo «operator», que hijos() deja fuera
+const partesIndice = n => n.namedChildren.filter(c => c.type !== "line_comment" && c.type !== "block_comment");
+// [1 -2; 3 4]: tree-sitter lee «1 -2» como una resta; Julia, con espacio antes y no después, como dos casillas
+function casillasFila(c) {
+  if (c.type === "binary_expression") {
+    const [a, o, b] = c.namedChildren;
+    if (o && (o.text === "-" || o.text === "+") && a.endIndex < o.startIndex && o.endIndex === b.startIndex) return [...casillasFila(a), { signo: o.text, nodo: b }];
+  }
+  return [{ nodo: c }];
+}
 const linea = n => n.startPosition.row + 1;
 const opDe = n => { for (let i = 0; i < n.childCount; i++) { const c = n.child(i); if (c.type === "operator" || (!c.isNamed && !"()[],;".includes(c.type))) return c.text; } return null; };
 
@@ -62,6 +73,15 @@ class Programa {
     if (x.T === "Funcion") return { t: "function", r: this.firma(x.nombre), m: x.nmetodos() };
     if (x.T === "Primitiva") return { t: "function", r: x.nombre, m: 1 };
     if (V.esEscalar(x)) return { t: V.tipo(x), e: true, v: [V.repr(x)] };
+    if (x.vistaTxt || x.T === "VistaRara") throw new NoSoportado("guardar una vista (view) en una variable");
+    if (MX.esMatriz(x) && V.largo(x) > 400) return { t: V.tipo(x), r: MX.muestraM(x, true) };
+    if (MX.esMatriz(x) && V.largo(x) <= 400) {
+      // A' es la misma vista cada vez que se escribe (objectid): se reconoce por su matriz, sin darle número a esta
+      if (!this.padres) this.padres = new Map();
+      if (x.vista && !this.padres.has(x.p)) this.padres.set(x.p, this.padres.size + 1);
+      const id = x.vista ? this.unId(x.vista + "|" + this.padres.get(x.p)) : this.unId(x);
+      return { t: V.tipo(x), d: MX.dims(x), el: MX.eltipoM(x), id, v: MX.lineal(x).map(e => V.repr(e)) };
+    }
     if (V.esRango(x) && V.largo(x) <= 30) return { t: V.tipo(x), rango: V.repr(x), v: V.elementos(x).map(e => V.repr(e)) };
     if (V.esVector(x)) {
       const n = V.largo(x), els = V.elementos(x), xs = n > 30 ? els.slice(0, 20) : els;
@@ -236,7 +256,9 @@ class Programa {
     this.va(l);
     if (nivel === 0) {
       const v = this.valor(n, sc);
-      const asignacion = ["assignment", "compound_assignment_expression", "local_statement", "global_statement"].includes(n.type) || (n.type === "binary_expression" && opDe(n) === ".=");
+      // como es_asignacion de trazar.jl: x ÷= 2 o A .+= 1 no cuentan como asignaciones y el REPL escribe su valor
+      const asignacion = ["assignment", "local_statement", "global_statement"].includes(n.type) || (n.type === "binary_expression" && opDe(n) === ".=") ||
+        (n.type === "compound_assignment_expression" && ["+=", "-=", "*=", "/=", "^=", ".="].includes(opDe(n)));
       if (!asignacion && v.T !== "Nothing") this.salida += this.prim.muestra(v) + "\n";
       this.paso(l, sc);
       return NADA;
@@ -413,6 +435,19 @@ class Programa {
           return v;
         }
         const [izq, der] = hijos(n), op = opDe(n).slice(0, -1);
+        if (op.length > 1 && op.startsWith(".")) {      // A .+= 1 es A .= A .+ 1: las mismas casillas
+          const v = this.prim.difunde(op.slice(1), [this.valor(izq, sc), this.valor(der, sc)]);
+          if (izq.type === "index_expression") {
+            const [obj, ind] = hijos(izq); const x = this.valor(obj, sc), idx = this.indices(x, ind, sc);
+            this.prim.ponIndice(x, idx, v, true);
+            // el valor es una vista de las casillas cambiadas: view(::Matrix{Int64}, :, 3)
+            const r = this.prim.indexa(x, idx), is = idx.T === "Indices2" ? idx.a : [idx];
+            if (V.esEscalar(r) || !is.every(i => i.T === "Colon" || i.T === "Int64" || i.T === "UnitRange")) return { T: "VistaRara", r };
+            return { ...r, vistaTxt: "view(::" + V.tipo(x) + ", " + is.map(i => i.T === "Colon" ? ":" : V.repr(i)).join(", ") + ")" };
+          }
+          this.prim.difundeAsignacion(this.valor(izq, sc), v);
+          return v;
+        }
         if (izq.type !== "identifier") {
           const v = this.prim.binaria(op, this.valor(izq, sc), this.valor(der, sc));
           this.asignaA(izq, v, sc); return v;
@@ -434,6 +469,14 @@ class Programa {
       case "call_expression": return this.llamada(n, sc, false);
       case "broadcast_call_expression": return this.llamada(n, sc, true);
       case "vector_expression": return this.prim.vectorLiteral(hijos(n).map(c => this.valor(c, sc)));
+      case "matrix_expression": {
+        const filas = hijos(n).map(fila => {
+          if (fila.type !== "matrix_row") throw new NoSoportado("esta forma de escribir una matriz");
+          return hijos(fila).flatMap(casillasFila).map(({ signo, nodo }) => { const v = this.valor(nodo, sc); return signo ? this.prim.unaria(signo, v) : v; });
+        });
+        return this.prim.matrizLiteral(filas);
+      }
+      case "adjoint_expression": return this.prim.vista("adjoint", this.valor(hijos(n)[0], sc));
       case "tuple_expression": case "open_tuple": {
         const cs = hijos(n);
         if (cs.length && cs.every(c => c.type === "named_field")) {      // (nombre = "Ana", nota = 9.0): una tupla con nombre
@@ -529,10 +572,17 @@ class Programa {
   indices(x, ind, sc) {
     const viejo = this.fin;
     try {
-      const partes = hijos(ind);
-      if (partes.length !== 1) throw new NoSoportado("indexar con varias dimensiones");
-      this.fin = V.esVector(x) || x.T === "Tuple" || x.T === "String" ? (x.T === "String" ? this.prim.ultimoIndice(x) : V.largo(x)) : undefined;
-      return this.valor(partes[0], sc);
+      const partes = partesIndice(ind);
+      const uno = p => p.type === "operator" && p.text === ":" ? { T: "Colon" } : this.valor(p, sc);
+      if (partes.length === 2) {
+        if (!MX.esMatriz(x)) throw new NoSoportado("dos índices en un " + V.tipo(x));
+        const ds = MX.dims(x), r = [];
+        partes.forEach((p, k) => { this.fin = ds[k]; r.push(uno(p)); });
+        return { T: "Indices2", a: r };
+      }
+      if (partes.length !== 1) throw new NoSoportado("indexar con " + partes.length + " índices");
+      this.fin = V.esVector(x) || x.T === "Tuple" || x.T === "String" || MX.esMatriz(x) ? (x.T === "String" ? this.prim.ultimoIndice(x) : V.largo(x)) : undefined;
+      return uno(partes[0]);
     } finally { this.fin = viejo; }
   }
   rango(n, sc) {
@@ -660,6 +710,18 @@ class Programa {
   comprension(n, sc) {
     const [cuerpo, ...clausulas] = hijos(n);
     if (!clausulas.length || !clausulas.every(c => c.type === "for_clause" || c.type === "if_clause")) throw new NoSoportado("esta comprensión");
+    const enl = clausulas.length === 1 ? hijos(clausulas[0]).filter(c => c.type === "for_binding") : [];
+    if (enl.length === 2) {          // [f(i, j) for i in 1:3, j in 1:4]: una matriz; i corre más deprisa (por columnas)
+      const [di, fi] = [hijos(enl[0])[0], hijos(enl[0]).slice(-1)[0]], [dj, fj] = [hijos(enl[1])[0], hijos(enl[1]).slice(-1)[0]];
+      const is = this.prim.itera(this.valor(fi, sc)), js = this.prim.itera(this.valor(fj, sc)), r = [];
+      for (const y of js) for (const x of is) {
+        const it = { vars: new Map(), padre: sc, funcion: false }; this.liga(di, x, it); this.liga(dj, y, it);
+        r.push(this.valor(cuerpo, it));
+      }
+      if (!r.length) throw new NoSoportado("una matriz vacía");
+      const v = this.prim.recoge(r);
+      return MX.mat(v.el, is.length, js.length, v.a);
+    }
     const res = this.generar(cuerpo, clausulas, sc);
     if (!res.length) throw new NoSoportado("una comprensión que no da ningún valor (vector vacío sin tipo)");
     return this.prim.recoge(res);
@@ -759,7 +821,7 @@ class Programa {
         case "index_expression": {
           const [o, i] = hijos(nodo);
           const so = ESC(o);
-          return (desnuda(o).type === "call_expression" ? "(" + so + ")" : so) + "[" + hijos(i).map(c => ESC(c)).join(", ") + "]";
+          return (desnuda(o).type === "call_expression" ? "(" + so + ")" : so) + "[" + partesIndice(i).map(c => c.type === "operator" ? c.text : ESC(c)).join(", ") + "]";
         }
         case "range_expression": {
           const ps = hijos(nodo);
@@ -767,6 +829,8 @@ class Programa {
           return ESC(ps[0], 10) + ":" + ESC(ps[1], 10);
         }
         case "vector_expression": return "[" + hijos(nodo).map(c => ESC(c)).join(", ") + "]";
+        case "matrix_expression": return "[" + hijos(nodo).map(f => hijos(f).flatMap(casillasFila).map(({ signo, nodo: c }) => (signo || "") + ESC(c)).join(" ")).join("; ") + "]";
+        case "adjoint_expression": return ESC(hijos(nodo)[0], 16) + "'";
         case "tuple_expression": case "open_tuple": return "(" + hijos(nodo).map(c => ESC(c)).join(", ") + ")";
         case "typed_expression": return ESC(hijos(nodo)[0]) + "::" + ESC(hijos(nodo)[1]);
         case "field_expression": return ESC(hijos(nodo)[0]) + "." + hijos(nodo)[1].text;
