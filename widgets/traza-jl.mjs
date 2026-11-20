@@ -77,6 +77,12 @@ pre.tz-codigo{ margin:0; font:400 14px/1.85 var(--mono); overflow-x:auto; backgr
 .tz .cas .v{ min-width:44px; height:40px; padding:0 6px; border:2px solid var(--tinta); margin-left:-2px; display:flex; align-items:center;
   justify-content:center; font:600 16px/1 var(--mono); background:#fff; transition:background .25s; }
 .tz .cas:first-child .v{ margin-left:0; }
+.tz table.dic{ border-collapse:collapse; font:500 14px/1.3 var(--mono); background:#fff; border:2px solid var(--tinta); max-width:100%; }   /* un Dict */
+.tz table.dic th{ font:600 9.5px/1 var(--titulo); letter-spacing:.06em; text-transform:uppercase; color:var(--banda); text-align:left; padding:5px 8px; border-bottom:1px solid var(--filete); }
+.tz table.dic td{ padding:5px 8px; border-top:1px solid var(--fila); white-space:pre; }
+.tz table.dic td.flecha{ color:var(--banda); padding:5px 2px; }
+.tz table.dic tr.nueva td, .tz table.dic tr.cambia td{ background:var(--suave); }
+.tz table.dic tr.nueva td:first-child, .tz table.dic tr.cambia td:last-child{ color:var(--acento); font-weight:700; }
 .tz .fila-letras{ display:flex; flex-wrap:wrap; row-gap:8px; }   /* un texto: sus letras, con el índice (de byte) de cada una */
 .tz .letra{ display:flex; flex-direction:column; gap:4px; flex:none; }
 .tz .letra .v{ height:40px; border:2px solid var(--tinta); margin-left:-2px; display:flex; align-items:center; justify-content:center;
@@ -261,6 +267,7 @@ const EJEMPLOS = [
   { nombre: "Julia como calculadora", codigo: "precio = 40\ndescuento = 0.15\nfinal = precio * (1 - descuento)\nfinal\nprecio = 50\nfinal" },
   { nombre: "Vectores y el punto", codigo: "notas = [9.0, 6.5, 4.0, 7.5]\nsubida = notas .+ 0.5\naprobado = notas .>= 5\nsum(aprobado)\nmedia = sum(notas) / length(notas)" },
   { nombre: "Letras y bytes", codigo: "s = \"canción\"\nn = length(s)\nb = ncodeunits(s)\no = s[6]\nfor c in s\n    println(c, \" \", Int(c))\nend\npalabras = split(\"El niño come\")\ns[7]" },
+  { nombre: "Un diccionario", codigo: "notas = Dict(\"Ana\" => 9.0, \"Biel\" => 4.0)\nnotas[\"Carla\"] = 7.5\nnotas[\"Biel\"] = 5.0\nfor (nombre, nota) in notas\n    println(nombre, \": \", nota)\nend\nnotas[\"Eva\"]" },
   { nombre: "Un bucle que suma", codigo: "notas = [9.0, 6.5, 4.0, 7.5]\ntotal = 0.0\nfor i in eachindex(notas)\n    if notas[i] >= 5\n        total += notas[i]\n    end\nend\ntotal", tabla: "i, notas[i], total" },
   { nombre: "Una función", codigo: "function media(v)\n    s = 0.0\n    for x in v\n        s += x\n    end\n    return s / length(v)\nend\n\nm = media([2, 4, 9])\nprintln(\"La media es \", m)" },
   { nombre: "b = a no copia", codigo: "a = [1, 2, 3]\nb = a\nb[1] = 100\na\nc = copy(a)\nc[1] = 0\na" },
@@ -404,11 +411,13 @@ function dibujaTraza(el, C, D) {
       return "un " + code(v.t) + " que vale " + code(v.v[0]) + ": " + queEs(v.t) + (n ? ", con " + n + (n === 1 ? " carácter" : " caracteres") + (b !== n ? " que ocupan " + b + " bytes" : "") : ", vacío");
     }
     if (v.e) { const t = queEs(v.t); return "un " + code(v.t) + " que vale " + code(v.v[0]) + (t ? ": " + t : ""); }
+    if (v.dict) return v.k.length ? "un diccionario con " + v.k.length + (v.k.length === 1 ? " pareja" : " parejas") + " clave → valor (" + code(v.t) + ")" : "un diccionario vacío (" + code(v.t) + "): aún no tiene ninguna pareja";
     if (v.rango) return "un rango, " + code(v.rango) + " (" + code(corta(v.t)) + "): " + longitud(v) + (longitud(v) === 1 ? " número" : " números") + " seguidos que Julia no guarda uno a uno, sino que calcula cuando se le piden";
     if (v.d) return "una matriz de " + v.d[0] + (v.d[0] === 1 ? " fila" : " filas") + " y " + v.d[1] + (v.d[1] === 1 ? " columna" : " columnas") + " (" + code(v.t) + ")";
     if (v.v && !longitud(v)) return "un vector vacío (" + code(v.t) + ")";
     if (v.v && v.t === "BitVector") return "un vector de " + code("true") + " y " + code("false") + ", " + longitud(v) + (longitud(v) === 1 ? " casilla" : " casillas") + " (" + code(v.t) + "): una <b>máscara</b>";
     if (v.v) return "un vector de " + longitud(v).toLocaleString("es-ES") + (longitud(v) === 1 ? " elemento" : " elementos") + " (" + code(v.t) + ")" + (v.nv ? ". Aquí se ven los " + v.v.length + " primeros" : "");
+    if (v.tupla && v.el.length && v.el.every(e => e.nombre)) return "una tupla con nombre, con " + v.el.length + (v.el.length === 1 ? " campo" : " campos") + ": " + v.el.map(e => code(e.nombre)).join(", ");
     if (v.tupla) return "una tupla de " + v.el.length + (v.el.length === 1 ? " elemento" : " elementos") + " (" + code(v.t) + ")";
     return "un valor de tipo " + code(v.t);
   }
@@ -425,7 +434,8 @@ function dibujaTraza(el, C, D) {
         const vale = n => (mf && mf[n]) || p.estado[n];
         const partes = ns.filter(vale).map(n => code(n) + " vale " + esc(muestra(vale(n))));
         const y = xs => xs.length > 1 ? xs.slice(0, -1).join(", ") + " y " + xs[xs.length - 1] : xs.join("");
-        return "Vuelta " + p.vuelta + " del <code>for</code>: llega el elemento " + p.vuelta + " de " + code(sec) + ", que se reparte entre " + y(ns.map(code)) + (partes.length ? ": " + y(partes) : "") + "." +
+        const esDic = (mf && mf[sec.trim()] && mf[sec.trim()].dict) || (p.estado[sec.trim()] && p.estado[sec.trim()].dict);
+        return "Vuelta " + p.vuelta + " del <code>for</code>: llega " + (esDic ? "la pareja número " + p.vuelta + " de " + code(sec) + ", en el orden en que Julia guarda el diccionario," : "el elemento " + p.vuelta + " de " + code(sec) + ",") + " que se reparte entre " + y(ns.map(code)) + (partes.length ? ": " + y(partes) : "") + "." +
           (p.vuelta === 1 ? " Son variables <b>locales</b> del bucle: solo existen dentro de él." : "");
       }
       return v ? "Vuelta " + p.vuelta + " del <code>for</code>: " + code(v.trim()) + " toma el elemento " + p.vuelta + " de " + code(sec) + (val ? ", que vale " + esc(muestra(val)) : "") + "." +
@@ -480,7 +490,22 @@ function dibujaTraza(el, C, D) {
     for (const n of lista) {
       const a = antes[n], b = ahora[n];
       const gemelo = b.id ? nombres(ahora, orden).find(m => m !== n && antes[m] && antes[m].id === b.id) : null;
-      if (!a && gemelo) { frases.push("Se crea " + code(n) + ", pero no es un vector nuevo: es <b>otro nombre</b> para el mismo vector que " + code(gemelo) + ". Julia no copia los vectores al asignarlos."); continue; }
+      const cosa = b.dict ? "diccionario" : "vector";
+      if (!a && gemelo) { frases.push("Se crea " + code(n) + ", pero no es un " + cosa + " nuevo: es <b>otro nombre</b> para el mismo " + cosa + " que " + code(gemelo) + ". Julia no copia los " + cosa + "s al asignarlos."); continue; }
+      if (a && a.dict && b.dict && !igual(a, b)) {         // un diccionario que cambia
+        const mapa = d => new Map(d.k.map((k, i) => [k, d.v[i]]));
+        const ma = mapa(a), mb = mapa(b), fr = [];
+        for (const [k, v] of mb) {
+          if (!ma.has(k)) fr.push("Se añade la pareja " + code(k + " => " + v) + " a " + code(n) + ".");
+          else if (ma.get(k) !== v) fr.push("Cambia " + code(n + "[" + k + "]") + ": valía " + esc(ma.get(k)) + " y ahora vale " + esc(v) + ".");
+        }
+        for (const k of ma.keys()) if (!mb.has(k)) fr.push("Se quita la clave " + code(k) + " de " + code(n) + ".");
+        const mismas = a.k.filter(k => mb.has(k)), orden = b.k.filter(k => ma.has(k));
+        if (mismas.join("\u0000") !== orden.join("\u0000")) fr.push("La tabla de " + code(n) + " ha crecido y Julia ha recolocado las parejas: por eso cambian de orden.");
+        frases.push(...(fr.length ? fr : [code(n) + " cambia."]));
+        if (b.id) hechos.push(n);
+        continue;
+      }
       const copia = ((L[p.linea - 1] || "").match(/=\s*copy\(\s*(\w+)\s*\)/) || [])[1];
       const trozo = ((L[p.linea - 1] || "").match(/^\s*\w+\s*=\s*(\w+)\[(.+)\]\s*$/) || []);
       if (!a && trozo[1] && b.v && !b.e && trozo[1] !== n && ahora[trozo[1]] && ahora[trozo[1]].v) {
@@ -570,7 +595,7 @@ function dibujaTraza(el, C, D) {
 
   function cabecera(v) {
     if (v.d) return '<span class="tipo">' + esc(v.t) + '</span><span class="lon">' + v.d.join(" × ") + " (filas × columnas)</span>";
-    const lon = v.e || v.t === "function" ? (v.t === "function" && v.m > 1 ? v.m + " métodos" : "") : v.tupla ? v.el.length + (v.el.length === 1 ? " elemento" : " elementos") : v.v ? "longitud " + longitud(v).toLocaleString("es-ES") : "";
+    const lon = v.dict ? v.k.length + (v.k.length === 1 ? " pareja" : " parejas") : v.e || v.t === "function" ? (v.t === "function" && v.m > 1 ? v.m + " métodos" : "") : v.tupla ? v.el.length + (v.el.length && v.el.every(e => e.nombre) ? (v.el.length === 1 ? " campo" : " campos") : v.el.length === 1 ? " elemento" : " elementos") : v.v ? "longitud " + longitud(v).toLocaleString("es-ES") : "";
     return '<span class="tipo" title="' + esc(v.t) + '">' + esc(v.t === "function" ? "función" : corta(v.t)) + "</span>" + (lon ? '<span class="lon">' + lon + "</span>" : "") + (v.local ? '<span class="loc">local</span>' : "");
   }
   // un texto como fila de letras, cada una con el índice de su primer byte; los bytes de en medio no son índices válidos
@@ -588,7 +613,16 @@ function dibujaTraza(el, C, D) {
     }
     return html + "</div>";
   }
+  // un diccionario: una tabla clave → valor, en el orden en que Julia lo guarda
+  function tablaDict(v, a) {
+    if (!v.k.length) return '<div class="otro">' + esc(v.t) + "() — vacío</div>";
+    const ant = a && a.dict ? new Map(a.k.map((k, i) => [k, a.v[i]])) : null;
+    return '<table class="dic"><thead><tr><th>clave</th><th></th><th>valor</th></tr></thead><tbody>' +
+      v.k.map((k, i) => { const cl = ant && !ant.has(k) ? "nueva" : ant && ant.get(k) !== v.v[i] ? "cambia" : "";
+        return '<tr class="' + cl + '"><td>' + esc(k) + '</td><td class="flecha">=&gt;</td><td>' + esc(v.v[i]) + "</td></tr>"; }).join("") + "</tbody></table>";
+  }
   function valor(v, a, op = {}) {
+    if (v.dict) return tablaDict(v, a);
     if (v.e && C.letras && esTipoTexto(v.t) && v.v[0].length > 2 && [...sinComillas(v.v[0])].length <= 40) return filaLetras(v, a);
     if (v.e && C.letras && v.t === "Char") { const c = sinComillas(v.v[0]); return '<span class="escalar">' + esc(v.v[0]) + '</span><span class="codigo">código ' + (c.length ? c.codePointAt(0) : "") + "</span>"; }
     if (v.e) return '<span class="escalar">' + esc(v.v[0]) + "</span>";
@@ -635,7 +669,7 @@ function dibujaTraza(el, C, D) {
       const celda = conFoco && n === C.foco && v.d && Array.isArray(pp) && pp.every(x => est[x] && est[x].v) ? pp.map(x => Number(est[x].v[0])) : null;
       const gem = comparte(n);
       html += '<div class="vec' + (cambio && ant ? " cambia" : "") + (v.local ? " local" : "") + (v.rango ? " esrango" : "") + '"><div class="vec-cab"><span class="nom">' + esc(n) + "</span>" + cabecera(v) +
-        (gem.length ? '<span class="comparte">↔ el mismo vector que ' + gem.join(", ") + "</span>" : "") + "</div>" +
+        (gem.length ? '<span class="comparte">↔ el mismo ' + (v.dict ? "diccionario" : "vector") + " que " + gem.join(", ") + "</span>" : "") + "</div>" +
         (v.t === "function" ? '<div class="otro">' + esc(v.r) + "</div>" : valor(v, a, { grande: conFoco && n === C.foco && !v.d && !v.e, foco: foco >= 1 && foco <= (v.v || []).length ? foco : null, puntero: C.puntero, celda })) + "</div>";
     }
     return html;

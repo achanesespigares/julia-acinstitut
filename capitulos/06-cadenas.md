@@ -206,7 +206,7 @@ Los tres guardan textos inmutables. Python y R esconden los bytes: cuentan siemp
 
 ## La grieta
 
-Con `split` has convertido `"Ana,9.0,Biel,4.0"` en nombres y notas. Pero han quedado en dos vectores separados, y para saber la nota de Biel hay que buscar en qué posición está su nombre y mirar esa posición en el otro vector. ¿No se podría preguntar directamente por la nota de `"Biel"`? Hace falta una estructura que guarde **parejas** nombre-nota: el diccionario, en *Tuplas y diccionarios*.
+Con `split` has convertido `"Ana,9.0,Biel,4.0"` en nombres y notas. Pero han quedado en dos vectores separados, y para saber la nota de Biel hay que buscar en qué posición está su nombre y mirar esa posición en el otro vector. ¿No se podría preguntar directamente por la nota de `"Biel"`? Hace falta una estructura que guarde **parejas** nombre-nota: el diccionario, en [Tuplas y diccionarios](07-tuplas-diccionarios.md).
 
 ## Ejercicios
 

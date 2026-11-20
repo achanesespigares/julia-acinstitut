@@ -18,7 +18,7 @@ class Retorno { constructor(v) { this.v = v; } }
 class Corte { constructor(que) { this.que = que; } }       // break o continue
 
 // ── Precedencias de Julia (Base.operator_precedence), para escribir expresiones como Julia ─────
-const PREC = { "=": 1, "||": 5, "&&": 6, ":": 10, "+": 11, "-": 11, "|": 11, "*": 12, "/": 12, "÷": 12, "%": 12, "&": 12, "//": 13, "^": 15 };
+const PREC = { "=": 1, "=>": 4, "||": 5, "&&": 6, ":": 10, "+": 11, "-": 11, "|": 11, "*": 12, "/": 12, "÷": 12, "%": 12, "&": 12, "//": 13, "^": 15 };
 const COMPARA = new Set(["<", ">", "<=", ">=", "==", "!=", "≠", "≤", "≥", "≈", "===", "!==", "∈", "in", "isa"]);
 const prec = op => COMPARA.has(op.replace(/^\./, "")) ? 7 : (PREC[op] ?? PREC[op.replace(/^\./, "")] ?? 12);
 
@@ -71,6 +71,8 @@ class Programa {
       return d;
     }
     if (x.T === "Tuple" && prof < 4 && x.a.length <= 30) return { t: V.tipo(x), tupla: true, el: x.a.map(e => ({ v: this.describe(e, prof + 1) })) };
+    if (x.T === "NamedTuple" && prof < 4 && x.a.length <= 30) return { t: V.tipo(x), tupla: true, el: x.a.map((e, i) => ({ nombre: x.nombres[i], v: this.describe(e, prof + 1) })) };
+    if (x.T === "Dict" && x.t.count <= 30) { const es = x.t.entradas(); return { t: V.tipo(x), dict: true, k: es.map(([k]) => V.repr(k)), v: es.map(([, w]) => V.repr(w)), id: this.unId(x) }; }
     if (x.T === "Tipo") return { t: "DataType", e: true, v: [x.nombre] };
     return { t: V.tipo(x), r: this.prim.muestra(x) };
   }
@@ -432,7 +434,26 @@ class Programa {
       case "call_expression": return this.llamada(n, sc, false);
       case "broadcast_call_expression": return this.llamada(n, sc, true);
       case "vector_expression": return this.prim.vectorLiteral(hijos(n).map(c => this.valor(c, sc)));
-      case "tuple_expression": case "open_tuple": return { T: "Tuple", a: hijos(n).map(c => this.valor(c, sc)) };
+      case "tuple_expression": case "open_tuple": {
+        const cs = hijos(n);
+        if (cs.length && cs.every(c => c.type === "named_field")) {      // (nombre = "Ana", nota = 9.0): una tupla con nombre
+          const nombres = cs.map(c => hijos(c)[0].text);
+          if (new Set(nombres).size !== nombres.length) throw new ErrorJulia("syntax: field name \"" + nombres.find((x, i) => nombres.indexOf(x) !== i) + "\" repeated in named tuple");
+          return { T: "NamedTuple", nombres, a: cs.map(c => this.valor(hijos(c)[1], sc)) };
+        }
+        if (cs.some(c => c.type === "named_field")) throw new NoSoportado("una tupla con unos campos con nombre y otros sin él");
+        return { T: "Tuple", a: cs.map(c => this.valor(c, sc)) };
+      }
+      case "field_expression": {
+        const [obj, campo] = hijos(n), x = this.valor(obj, sc), c = campo.text;
+        if (x.T === "NamedTuple") {
+          const i = x.nombres.indexOf(c);
+          if (i < 0) throw new ErrorJulia("FieldError: type NamedTuple has no field `" + c + "`, available fields: " + x.nombres.map(m => "`" + m + "`").join(", "));
+          return x.a[i];
+        }
+        if (x.T === "Pair") { if (c === "first") return x.a; if (c === "second") return x.b; throw new ErrorJulia("FieldError: type Pair has no field `" + c + "`, available fields: `first`, `second`"); }
+        throw new NoSoportado("el campo ." + c + " de un " + V.tipo(x));
+      }
       case "range_expression": return this.rango(n, sc);
       case "index_expression": {
         const [obj, ind] = hijos(n);
@@ -566,6 +587,12 @@ class Programa {
   }
   argumentos(lista, sc) {
     const args = [], kw = new Map();
+    const cs = hijos(lista);
+    if (cs.some(c => c.type === "for_clause")) {        // sum(x^2 for x in v): un generador
+      const cuerpo = cs[0], clausulas = cs.slice(1);
+      if (!clausulas.every(c => c.type === "for_clause" || c.type === "if_clause")) throw new NoSoportado("este generador");
+      return [[{ T: "Iter", nombre: "generador", a: this.generar(cuerpo, clausulas, sc) }], kw];
+    }
     for (let i = 0; i < lista.childCount; i++) {
       const c = lista.child(i);
       if (!c.isNamed || c.type === "line_comment") continue;
@@ -585,6 +612,15 @@ class Programa {
     }
     const fn = hijos(n)[0];
     const lista = n.namedChildren.find(c => c.type === "argument_list");
+    if (fn.type === "parametrized_type_expression" && !difundir) {     // Dict{String, Int}()
+      const [nom, llaves] = hijos(fn);
+      if (nom.text !== "Dict") throw new NoSoportado("el constructor " + fn.text);
+      const ps = hijos(llaves).map(c => this.nombreTipo(c));
+      if (ps.length !== 2) throw new NoSoportado("Dict con " + ps.length + " parámetros");
+      const [args, kw] = this.argumentos(lista, sc);
+      if (kw.size) throw new NoSoportado("Dict con argumentos con nombre");
+      return this.prim.creaDict(args, ps[0], ps[1]);
+    }
     if (fn.type === "identifier" && !difundir && fn.text in TIPOS && !this.glob.has(fn.text)) {
       const [args, kw] = this.argumentos(lista, sc);
       return this.prim.construye(TIPOS[fn.text].nombre, args, kw);
@@ -593,6 +629,13 @@ class Programa {
     const [args, kw] = this.argumentos(lista, sc);
     if (difundir) return this.prim.difunde(f, args, kw);
     return this.aplica(f, args, kw);
+  }
+  // el nombre de un tipo escrito en el programa: Int → Int64, Vector{Int} → Vector{Int64}
+  nombreTipo(c) {
+    const NOMBRES = { Int: "Int64", Int64: "Int64", Float64: "Float64", String: "String", Char: "Char", Bool: "Bool", Any: "Any", Real: "Real", Integer: "Integer", AbstractString: "AbstractString", Number: "Number" };
+    if (c.type === "identifier" && NOMBRES[c.text]) return NOMBRES[c.text];
+    if (c.type === "parametrized_type_expression") { const [nom, ll] = hijos(c); if (nom.text === "Vector") return "Vector{" + hijos(ll).map(x => this.nombreTipo(x)).join(", ") + "}"; }
+    throw new NoSoportado("el tipo " + c.text);
   }
   aplica(f, args, kw) {
     if (f.T === "Funcion") return f.anonima ? f.llama(args) : this.llamaPrograma(f, args, kw);
@@ -615,14 +658,26 @@ class Programa {
   }
   valorSinTraza(n, sc) { return this.valor(n, sc); }
   comprension(n, sc) {
-    const cuerpo = hijos(n)[0], clausula = hijos(n).find(c => c.type === "for_clause");
-    if (!clausula || hijos(n).some(c => c.type === "if_clause")) throw new NoSoportado("esta comprensión");
-    const enlaces = hijos(clausula).filter(c => c.type === "for_binding");
+    const [cuerpo, ...clausulas] = hijos(n);
+    if (!clausulas.length || !clausulas.every(c => c.type === "for_clause" || c.type === "if_clause")) throw new NoSoportado("esta comprensión");
+    const res = this.generar(cuerpo, clausulas, sc);
+    if (!res.length) throw new NoSoportado("una comprensión que no da ningún valor (vector vacío sin tipo)");
+    return this.prim.recoge(res);
+  }
+  // los valores de [cuerpo for x in xs if cond] o de (cuerpo for x in xs if cond)
+  generar(cuerpo, clausulas, sc) {
+    const fors = clausulas.filter(c => c.type === "for_clause"), ifs = clausulas.filter(c => c.type === "if_clause");
+    if (fors.length !== 1 || ifs.length > 1 || clausulas[0].type !== "for_clause") throw new NoSoportado("una comprensión con varios for o if");
+    const enlaces = hijos(fors[0]).filter(c => c.type === "for_binding");
     if (enlaces.length !== 1) throw new NoSoportado("una comprensión con varios for");
     const [d, fuente] = [hijos(enlaces[0])[0], hijos(enlaces[0]).slice(-1)[0]];
     const xs = this.prim.itera(this.valor(fuente, sc)), res = [];
-    for (const x of xs) { const it = { vars: new Map(), padre: sc, funcion: false }; this.liga(d, x, it); res.push(this.valor(cuerpo, it)); }
-    return this.prim.recoge(res);
+    for (const x of xs) {
+      const it = { vars: new Map(), padre: sc, funcion: false }; this.liga(d, x, it);
+      if (ifs.length) { const c = this.valor(hijos(ifs[0])[0], it); if (c.T !== "Bool") throw new ErrorJulia("TypeError: non-boolean (" + V.tipo(c) + ") used in boolean context"); if (!c.v) continue; }
+      res.push(this.valor(cuerpo, it));
+    }
+    return res;
   }
   macro(n, sc) {
     const nombre = hijos(hijos(n)[0])[0]?.text;
@@ -714,6 +769,8 @@ class Programa {
         case "vector_expression": return "[" + hijos(nodo).map(c => ESC(c)).join(", ") + "]";
         case "tuple_expression": case "open_tuple": return "(" + hijos(nodo).map(c => ESC(c)).join(", ") + ")";
         case "typed_expression": return ESC(hijos(nodo)[0]) + "::" + ESC(hijos(nodo)[1]);
+        case "field_expression": return ESC(hijos(nodo)[0]) + "." + hijos(nodo)[1].text;
+        case "named_field": return hijos(nodo)[0].text + " = " + ESC(hijos(nodo)[1]);
       }
       throw new NoSoportado("escribir «" + nodo.type.replace(/_/g, " ") + "»");
     };

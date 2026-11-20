@@ -28,6 +28,7 @@ project:
     - title: Parte II · Estructuras de datos
       children:
         - file: capitulos/06-cadenas.md
+        - file: capitulos/07-tuplas-diccionarios.md
 site:
   template: book-theme
   options:

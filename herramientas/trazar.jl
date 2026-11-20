@@ -83,11 +83,15 @@ function describe(x, prof = 0)
     if x isa Tuple && prof < 4 && length(x) <= 30
         return Dict("t" => nombre_tipo(x), "tupla" => true, "el" => [Dict("v" => describe(e, prof + 1)) for e in x])
     end
+    if x isa AbstractDict && length(x) <= 30
+        return Dict("t" => nombre_tipo(x), "dict" => true, "k" => [un_valor(k) for k in keys(x)],
+                    "v" => [un_valor(v) for v in values(x)], "id" => un_id(x))
+    end
     if x isa NamedTuple && prof < 4 && length(x) <= 30
         return Dict("t" => nombre_tipo(x), "tupla" => true,
                     "el" => [Dict("nombre" => string(k), "v" => describe(v, prof + 1)) for (k, v) in pairs(x)])
     end
-    Dict("t" => nombre_tipo(x), "r" => sprint(show, MIME"text/plain"(), x; context = :limit => true))
+    Dict{String,Any}("t" => nombre_tipo(x), "r" => sprint(show, MIME"text/plain"(), x; context = (:limit => true, :displaysize => (24, 80))))
 end
 
 function corto(x)
@@ -197,8 +201,13 @@ function paso(l, locs)
     T[].por_linea && fila(locs)
     anota(Dict{String,Any}("linea" => l, "tipo" => "linea"))
 end
+# El REPL escribe los diccionarios con :limit (alinea las flechas => y corta a 20 filas en una pantalla de 24 × 80)
+const REPL_LIMITE = Union{AbstractDict, Base.KeySet, Base.ValueIterator}
 function muestra(v)
-    if v !== nothing
+    if v isa REPL_LIMITE
+        show(IOContext(stdout, :limit => true, :displaysize => (24, 80)), MIME"text/plain"(), v)
+        println(stdout)
+    elseif v !== nothing
         show(stdout, MIME"text/plain"(), v)
         println(stdout)
     end
