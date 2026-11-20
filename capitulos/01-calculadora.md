@@ -170,7 +170,7 @@ Los tres lenguajes guardan los decimales con el mismo estándar, así que fallan
 
 ## La grieta
 
-Hasta ahora cada nombre guarda un único valor. Pero las notas de una clase, las temperaturas de un mes o los precios de una tienda son muchos valores del mismo tipo. ¿Hay que inventar un nombre para cada uno?
+Hasta ahora cada nombre guarda un único valor. Pero las notas de una clase, las temperaturas de un mes o los precios de una tienda son muchos valores del mismo tipo. ¿Hay que inventar un nombre para cada uno? En el capítulo siguiente, [Vectores y rangos](02-vectores.md), la respuesta es que no.
 
 ## Ejercicios
 

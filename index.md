@@ -22,11 +22,11 @@ Elige aquí tu ruta. La elección se recuerda en todo el libro, y puedes cambiar
 
 ## Lo que hay ahora
 
-El libro está en construcción. Ya puedes leer el primer capítulo, [Julia como calculadora](capitulos/01-calculadora.md). El plan completo (en negrita, lo que ya está escrito):
+El libro está en construcción. Ya puedes leer [Julia como calculadora](capitulos/01-calculadora.md) y [Vectores y rangos](capitulos/02-vectores.md). Y en el [laboratorio](capitulos/laboratorio.md) puedes probar tu propio Julia. El plan completo (en negrita, lo que ya está escrito):
 
 | Parte | Capítulos |
 |---|---|
-| I · Primeros pasos con Julia | **Julia como calculadora** · Vectores y rangos · Índices, filtros y el punto · Decidir y repetir · Funciones |
+| I · Primeros pasos con Julia | **Julia como calculadora** · **Vectores y rangos** · Índices, filtros y el punto · Decidir y repetir · Funciones |
 | II · Estructuras de datos | Cadenas y caracteres · Tuplas y diccionarios · Matrices · Tipos propios · Tablas de datos |
 | III · Cálculo científico | Álgebra lineal · Gráficos · Probabilidad y simulación · Ecuaciones y optimización · Ecuaciones diferenciales · Datos y estadística |
 | IV · Julia por dentro | El sistema de tipos · Despacho múltiple · Rendimiento · Metaprogramación · Memoria: copias y vistas |

@@ -39,6 +39,7 @@ mutable struct Estado
     ocultar::Vector{String}
     salida::String                 # el archivo donde va lo que el programa escribe
     firmas::Dict{Symbol,Vector{String}}
+    ids::Dict{UInt,Int}            # un número por cada vector distinto: dos nombres con el mismo número son el mismo vector
 end
 const T = Ref{Estado}()
 
@@ -46,6 +47,8 @@ const T = Ref{Estado}()
 un_valor(x) = repr(x)
 nombre_tipo(x) = string(typeof(x))
 es_escalar(x) = x isa Union{Number,AbstractString,AbstractChar,Symbol,Nothing,Missing}
+
+un_id(x) = (ids = T[].ids; get!(ids, objectid(x), length(ids) + 1))
 
 function firma(n::Symbol)
     fs = get(T[].firmas, n, String[])
@@ -70,10 +73,11 @@ function describe(x, prof = 0)
         d = Dict{String,Any}("t" => nombre_tipo(x), "v" => [un_valor(e) for e in xs], "el" => string(eltype(x)))
         n > 30 && (d["nv"] = n)
         x isa AbstractRange && (d["rango"] = un_valor(x))
+        x isa AbstractRange || (d["id"] = un_id(x))
         return d
     end
     if x isa AbstractMatrix && length(x) <= 400
-        return Dict("t" => nombre_tipo(x), "d" => collect(size(x)), "el" => string(eltype(x)),
+        return Dict("t" => nombre_tipo(x), "d" => collect(size(x)), "el" => string(eltype(x)), "id" => un_id(x),
                     "v" => [un_valor(e) for e in vec(x)])
     end
     if x isa Tuple && prof < 4 && length(x) <= 30
@@ -401,7 +405,7 @@ function traza(codigo::AbstractString, config::AbstractDict)
     touch(salida)
     st = Estado(Module(:Main), Any[], Any[], Symbol[], Any[], 0, Dict{Int,Int}(), 0, Dict{Symbol,Any}(),
                 String.(get(config, "columnas", String[])), get(config, "fila_en", "") == "cada_linea",
-                String.(get(config, "ocultar", String[])), salida, Dict{Symbol,Vector{String}}())
+                String.(get(config, "ocultar", String[])), salida, Dict{Symbol,Vector{String}}(), Dict{UInt,Int}())
     T[] = st
     Core.eval(st.modulo, :(using Random; Random.seed!(1)))
     push!(st.pasos, Dict("linea" => nothing, "tipo" => "inicio", "estado" => Dict(), "orden" => String[],
