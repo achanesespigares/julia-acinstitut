@@ -240,7 +240,7 @@ En Julia la sangría no cambia nada, pero se usa igual para leer mejor. Y la var
 
 ## La grieta
 
-El `if` que convierte una nota en «notable» o «suspenso» ya lo has escrito. Pero si mañana lo necesitas en otro programa, o tres veces en este, tendrás que copiarlo entero. Y si cambias el corte del notable, tendrás que cambiarlo en todas las copias. Hace falta ponerle un nombre a ese trozo de código y usarlo cuando haga falta: una **función**, el capítulo siguiente.
+El `if` que convierte una nota en «notable» o «suspenso» ya lo has escrito. Pero si mañana lo necesitas en otro programa, o tres veces en este, tendrás que copiarlo entero. Y si cambias el corte del notable, tendrás que cambiarlo en todas las copias. Hace falta ponerle un nombre a ese trozo de código y usarlo cuando haga falta: una **función**, el capítulo siguiente: [Funciones](05-funciones.md).
 
 ## Ejercicios
 

@@ -209,6 +209,12 @@ class Programa {
       case "for_statement": return this.bucleFor(n, nivel, sc);
       case "while_statement": return this.bucleWhile(n, nivel, sc);
       case "if_statement": this.va(l); return this.siEntonces(n, nivel, sc);
+      case "ternary_expression": {      // como sentencia, un ternario es un if para Julia: c ? a : b
+        this.va(l);
+        const [c, a, b] = hijos(n), v = this.valor(c, sc);
+        this.cond(l, c, v, sc);
+        return this.bloque([this.booleano(v) ? a : b], nivel + 1, sc);
+      }
       case "break_statement": case "continue_statement":
         this.va(l); this.paso(l, sc); throw new Corte(n.type === "break_statement" ? "break" : "continue");
       case "return_statement": {

@@ -434,6 +434,9 @@ function dibujaTraza(el, C, D) {
         (/^\s*while\b/.test(L[p.linea - 1]) ? "un <code>while</code>" : "un <code>if</code>") + " necesita " + code("true") + " o " + code("false") + ": con cualquier otra cosa, Julia da un error.";
     if (p.tipo === "condicion") {
       const si = p.cond.valor === "true", lt = (L[p.linea - 1] || "").trim(), esWhile = /^while\b/.test(lt), esElseif = /^elseif\b/.test(lt);
+      if (!/^(if|elseif|while)\b/.test(lt) && / \? /.test(lt))
+        return "Se comprueba " + code(p.cond.texto) + (p.cond.valores !== p.cond.texto ? ": con los valores de ahora, " + code(p.cond.valores) : "") + ", que es " + code(p.cond.valor) + ". " +
+          (si ? "El ternario se queda con lo que va entre <code>?</code> y <code>:</code>." : "El ternario se queda con lo que va detrás de <code>:</code>.");
       return "Se comprueba " + code(p.cond.texto) + (p.cond.valores !== p.cond.texto ? ": con los valores de ahora, " + code(p.cond.valores) : "") + ", que es " + code(p.cond.valor) + ". " +
         (esWhile ? (si ? "El <code>while</code> da otra vuelta." : "El <code>while</code> se detiene.")
           : si ? "Se entra en el bloque del <code>" + (esElseif ? "elseif" : "if") + "</code>."
@@ -487,6 +490,12 @@ function dibujaTraza(el, C, D) {
         frases.push(code(n) + " gana un elemento al final, " + esc(b.v[b.v.length - 1]) + ": ahora tiene " + b.v.length + (b.v.length === 1 ? " elemento." : " elementos."));
         hechos.push(n); continue;
       }
+      if (a.id && b.id && a.id !== b.id) {     // v = [0.0, 0.0]: el nombre cambia de vector; el vector de antes sigue ahí
+        const otros = nombres(p.estado, p.orden).filter(m => m !== n && p.estado[m] && p.estado[m].id === a.id);
+        frases.push("El nombre " + code(n) + " pasa a señalar un vector <b>nuevo</b>: " + quees(b) + "." +
+          (otros.length ? " " + otros.map(code).join(" y ") + " no cambia: sigue siendo el vector de antes." : ""));
+        hechos.push(n); continue;
+      }
       frases.push(code(n) + " cambia: ahora es " + quees(b) + ".");
     }
     // las que desaparecen (una variable local de un bucle que termina)
@@ -511,6 +520,14 @@ function dibujaTraza(el, C, D) {
       else if (bang && esVector) frases.push(code(bang) + " devuelve el vector modificado, y Julia lo muestra en la consola" + cola);
       else if (!/(^|[^=!<>≈])=($|[^=])/.test(linea.replace(/"[^"]*"/g, ""))) frases.push("La línea es una expresión: Julia calcula " + code(linea) + " y muestra su valor en la consola" + cola);
       else frases.push("Julia escribe en la consola " + muestra1 + ".");
+    }
+    if (!frases.length) {
+      const lt = (L[p.linea - 1] || "").trim();
+      if (prev && prev.tipo === "condicion" && prev.linea === p.linea && / \? /.test(lt))
+        return "Se calcula la rama elegida: será el resultado" + (mp ? " de la función." : ".");
+      const llam = (lt.match(/^([\w.]+!?)\(.*\)$/) || [])[1];
+      if (llam && prev && prev.tipo === "devuelve" && prev.valor === "nothing")
+        return "La llamada a " + code(llam) + " ha terminado. Como devuelve " + code("nothing") + ", la consola no muestra nada: lo que importaba era lo que ha hecho por el camino.";
     }
     return frases.length ? frases.join(" ") : "Se ejecuta la línea " + p.linea + ".";
   }
@@ -562,10 +579,12 @@ function dibujaTraza(el, C, D) {
     return html + "</tbody></table></div>";
   }
 
-  function variables(est, orden, ant, conFoco) {
+  // fuera = las variables de otro ámbito (el programa principal o la llamada en curso) y cómo nombrarlo
+  function variables(est, orden, ant, conFoco, fuera = null) {
     let html = "";
     const ns = nombres(est, orden);
-    const comparte = n => est[n].id ? ns.filter(m => m !== n && est[m].id === est[n].id) : [];
+    const comparte = n => est[n].id ? ns.filter(m => m !== n && est[m].id === est[n].id).map(esc)
+      .concat(fuera ? Object.keys(fuera.vars).filter(m => fuera.vars[m] && fuera.vars[m].id === est[n].id).map(m => esc(m) + " " + esc(fuera.donde)) : []) : [];
     const lista = conFoco && C.foco && ns.includes(C.foco) ? [C.foco].concat(ns.filter(n => n !== C.foco)) : ns;
     for (const n of lista) {
       const v = est[n], a = ant && ant[n];
@@ -575,7 +594,7 @@ function dibujaTraza(el, C, D) {
       const celda = conFoco && n === C.foco && v.d && Array.isArray(pp) && pp.every(x => est[x] && est[x].v) ? pp.map(x => Number(est[x].v[0])) : null;
       const gem = comparte(n);
       html += '<div class="vec' + (cambio && ant ? " cambia" : "") + (v.local ? " local" : "") + (v.rango ? " esrango" : "") + '"><div class="vec-cab"><span class="nom">' + esc(n) + "</span>" + cabecera(v) +
-        (gem.length ? '<span class="comparte">↔ el mismo vector que ' + gem.map(esc).join(", ") + "</span>" : "") + "</div>" +
+        (gem.length ? '<span class="comparte">↔ el mismo vector que ' + gem.join(", ") + "</span>" : "") + "</div>" +
         (v.t === "function" ? '<div class="otro">' + esc(v.r) + "</div>" : valor(v, a, { grande: conFoco && n === C.foco && !v.d && !v.e, foco: foco >= 1 && foco <= (v.v || []).length ? foco : null, puntero: C.puntero, celda })) + "</div>";
     }
     return html;
@@ -587,13 +606,14 @@ function dibujaTraza(el, C, D) {
     const hayGlobal = nombres(p.estado, p.orden).length;
     if (!M.length && !hayGlobal) html += '<p class="tz-vacio">Todavía no hay ninguna variable.</p>';
     if (M.length) html += '<span class="tz-ambito">Programa principal</span>' + (hayGlobal ? "" : '<p class="tz-vacio">Sin variables.</p>');
-    html += variables(p.estado, p.orden, prev && prev.estado, true);
+    const enCurso = M.length ? M[M.length - 1] : null;
+    html += variables(p.estado, p.orden, prev && prev.estado, true, enCurso ? { vars: enCurso.vars, donde: "(en la llamada a " + enCurso.nombre + ")" } : null);
     const antes = prev && prev.marcos ? Object.fromEntries(prev.marcos.map(m => [m.id, m.vars])) : {};
     M.forEach((m, i) => {
       const activo = i === M.length - 1;
       html += '<div class="marco' + (activo ? " activo" : "") + '"><div class="marco-cab"><span>' + esc(m.llamada) + '</span><span class="que">' +
         (activo ? "llamada en curso" : "esperando a " + esc(M[i + 1].nombre)) + "</span></div>" +
-        (Object.keys(m.vars).length ? variables(m.vars, m.orden, antes[m.id], false) : '<p class="tz-vacio">Sin variables.</p>') +
+        (Object.keys(m.vars).length ? variables(m.vars, m.orden, antes[m.id], false, { vars: p.estado, donde: "(del programa principal)" }) : '<p class="tz-vacio">Sin variables.</p>') +
         (activo && p.tipo === "devuelve" ? '<span class="devuelve">devuelve ' + esc(p.valor) + "</span>" : "") + "</div>";
     });
     if (p.tipo === "error") html += '<div class="tz-error"><b>Error de Julia</b><br>' + esc(p.error) + "</div>";

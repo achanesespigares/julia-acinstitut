@@ -438,7 +438,7 @@ function traza(codigo::AbstractString, config::AbstractDict)
                     Core.eval(st.modulo, REPL.softscope(reescribe(a, linea, 0)))
                 end
             catch err
-                error_txt = replace(sprint(showerror, err isa LoadError ? err.error : err), "`Main.Main`" => "`Main`")
+                error_txt = replace(Base.invokelatest(sprint, showerror, err isa LoadError ? err.error : err), "`Main.Main`" => "`Main`")
                 # la lista de «Closest candidates» de un MethodError no cabe en el visualizador
                 error_txt = strip(first(split(error_txt, "\n\nClosest candidates")))
                 # desde aquí, como en el REPL, hay que mirar la «edad del mundo» más reciente: las variables que
