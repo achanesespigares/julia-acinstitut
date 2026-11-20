@@ -1,0 +1,15 @@
+{
+  "name": "julia-acinstitut",
+  "version": "0.1.0",
+  "description": "Mirar y ver tu código pensar · Entendiendo Julia, desde dentro · AC Institut (Jupyter Book 2 / MyST)",
+  "scripts": {
+    "trazas": "julia --project=herramientas herramientas/trazar.jl capitulos/*.md",
+    "build": "myst build --html",
+    "start": "myst start"
+  },
+  "license": "CC-BY-NC-SA-4.0",
+  "dependencies": {
+    "mystmd": "1.12.0"
+  },
+  "private": true
+}

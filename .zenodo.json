@@ -1,0 +1,10 @@
+{
+  "title": "Mirar y ver tu código pensar · Entendiendo Julia, desde dentro",
+  "upload_type": "lesson",
+  "description": "Libro interactivo para aprender Julia viendo cómo se ejecuta cada programa, línea a línea y con la memoria a la vista. Dos rutas en cada capítulo (base y a fondo). AC Institut.",
+  "creators": [{ "name": "Chanes Espigares, Antonio" }],
+  "license": "cc-by-nc-sa-4.0",
+  "language": "spa",
+  "keywords": ["Julia", "programación", "cálculo científico", "educación", "visualización de código", "Jupyter Book"],
+  "related_identifiers": [{ "identifier": "https://achanesespigares.github.io/julia-acinstitut/", "relation": "isDocumentedBy", "resource_type": "publication-book" }]
+}
