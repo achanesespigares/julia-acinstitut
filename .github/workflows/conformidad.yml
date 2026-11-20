@@ -1,0 +1,24 @@
+# El intérprete del laboratorio frente a Julia de verdad: cada programa de los capítulos y del banco
+# lab/pruebas/ se ejecuta con los dos y las trazas se comparan paso a paso.
+name: Conformidad del laboratorio
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  comparar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: "1.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Instalar
+        run: |
+          npm ci
+          julia --project=herramientas -e 'using Pkg; Pkg.instantiate()'
+      - name: Comparar el intérprete con Julia
+        run: node herramientas/conformidad.mjs

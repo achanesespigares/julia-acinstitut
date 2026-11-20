@@ -1,0 +1,15 @@
+a = log(10, 100)
+b = exp(1)
+c = sin(π / 6)
+d = cos(0)
+e = sqrt(16)
+f = abs(-3.5)
+g = 10 / 4
+h = mod(-7, 3)
+k = rem(-7, 3)
+m = div(7, 2)
+p = max(3, 9, 4)
+q = 2.5^2
+r = 1.1^3
+s = factorial(5)
+t = gcd(12, 18)

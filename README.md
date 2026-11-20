@@ -32,7 +32,7 @@ estilo/ac-institut.css    piel AC Institut (vino, Montserrat, Arimo, IBM Plex Mo
 
 ## Trabajar con el libro
 
-Requisitos: Node 18 o superior y Julia 1.12 o superior.
+Requisitos: Node 18 o superior y Julia 1.12 o superior (el libro se comprueba con Julia 1.13).
 
 ```bash
 npm ci                                                   # instala MyST en la versión fijada
@@ -55,6 +55,26 @@ Detrás de una celda `{code-cell} julia`, una directiva con su configuración:
 ````
 
 Después, `npm run trazas`. Las claves de `config` están explicadas al principio de `herramientas/trazar.jl`.
+
+## El laboratorio: Julia en el navegador
+
+Julia no se puede ejecutar todavía en un navegador, así que el laboratorio (`capitulos/laboratorio.md`) usa un
+**intérprete propio** de la parte de Julia que enseña el libro:
+
+```
+lab/jl/julia.mjs          el intérprete: ámbitos como el REPL, funciones y marcos, y trazas como trazar.jl
+lab/jl/valores.mjs        los valores de Julia (Int64 de 64 bits de verdad, Float64…) y cómo los escribe Julia
+lab/jl/primitivas.mjs     la aritmética y las funciones de Base, con los mismos errores
+lab/vendor/               web-tree-sitter y la gramática tree-sitter-julia (MIT), copiadas de node_modules
+lab/pruebas/*.jl          el banco de pruebas (# config: {...} en la primera línea, si hace falta)
+herramientas/conformidad.mjs   compara el intérprete con Julia de verdad, paso a paso
+```
+
+`npm run conformidad` ejecuta cada programa de los capítulos y del banco con `trazar.jl` (Julia) y con el
+intérprete, y compara las trazas: variables, tipos, consola, tabla y errores. También se ejecuta en GitHub con
+cada push (`.github/workflows/conformidad.yml`). Lo que el intérprete no sabe hacer lanza `NoSoportado` y el
+laboratorio lo dice; nunca inventa un resultado. Cuando un capítulo nuevo usa algo que el intérprete aún no
+sabe, se añade al intérprete y a `lab/pruebas/` hasta que la conformidad vuelva a ser total.
 
 ## Licencia
 

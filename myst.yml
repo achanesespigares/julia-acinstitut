@@ -13,6 +13,7 @@ project:
     - herramientas/**
     - README.md
     - node_modules/**
+    - lab/**
   toc:
     - file: index.md
     - file: capitulos/00-como-leer.md

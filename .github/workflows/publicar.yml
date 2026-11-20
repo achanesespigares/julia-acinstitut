@@ -33,10 +33,14 @@ jobs:
         run: npm ci
       - name: Construir el libro
         run: npx myst build --html
-      - name: Copiar las trazas
+      - name: Copiar las trazas y el laboratorio
         run: |
+          # las trazas de los visualizadores
           mkdir -p _build/html/datos
-          cp -r datos/. _build/html/datos/     # las trazas de los visualizadores
+          cp -r datos/. _build/html/datos/
+          # el laboratorio: el intérprete de Julia y la gramática de tree-sitter
+          mkdir -p _build/html/lab
+          cp -r lab/jl lab/vendor _build/html/lab/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: ./_build/html

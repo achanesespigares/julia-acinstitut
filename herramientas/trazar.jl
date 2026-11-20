@@ -238,10 +238,12 @@ function sustituye(ex, locs)
     string(rec(ex))
 end
 como_si(v) = v isa Bool ? string(v) : un_valor(v)
+# string(:(v[end])) escribe v[var"end"]: en el libro se escribe como en el código
+limpia(t) = replace(t, "var\"end\"" => "end")
 function cond(l, v, texto, locs)
     pon_locales(locs)
     anota(Dict{String,Any}("linea" => l, "tipo" => "condicion",
-        "cond" => Dict("texto" => texto, "valores" => sustituye(Meta.parse(texto), locs), "valor" => como_si(v))))
+        "cond" => Dict("texto" => limpia(texto), "valores" => limpia(sustituye(Meta.parse(texto), locs)), "valor" => como_si(v))))
     v
 end
 function entra(nombre, l, locs, args)
@@ -381,6 +383,11 @@ function reescribe(e, linea, nivel; final = false)
     end
     if e isa Expr && e.head in (:break, :continue)
         return Expr(:block, llama(va, linea), llama(paso, linea, LOCALS), e)
+    end
+    # global x / local x: la declaración va sola (no puede ser el valor de otra expresión)
+    if e isa Expr && e.head in (:global, :local)
+        final && return Expr(:block, llama(va, linea), e, nothing)
+        return Expr(:block, llama(va, linea), e, llama(paso, linea, LOCALS), nothing)
     end
     if nivel == 0 && e isa Expr && e.head in (:const, :using, :import, :struct, :macro, :module, :abstract, :primitive)
         return Expr(:block, llama(va, linea), e, llama(paso, linea, LOCALS), nothing)

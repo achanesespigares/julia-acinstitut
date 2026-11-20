@@ -30,3 +30,8 @@ table code { white-space: nowrap; }
 
 /* En el móvil, el ¶ de los títulos (sale al pasar el ratón) puede asomar por la derecha y ensanchar la página */
 @media (max-width: 760px){ h1 > a[href^="#"].select-none, h2 > a[href^="#"].select-none, h3 > a[href^="#"].select-none, h4 > a[href^="#"].select-none{ display:none; } }
+/* botones ({button}): en el vino de la casa, como los del visualizador */
+article a.button{ display:inline-flex; align-items:center; gap:.4em; background:var(--ac-acento) !important; color:#fff !important; border:2px solid var(--ac-tinta);
+  border-radius:0; padding:.6em 1.1em; font:600 14px/1 "Montserrat",Arial,sans-serif; text-decoration:none; }
+article a.button:hover{ background:var(--ac-oscuro) !important; }
+article a.button svg{ display:none; }

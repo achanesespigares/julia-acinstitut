@@ -5,11 +5,16 @@
   "scripts": {
     "trazas": "julia --project=herramientas herramientas/trazar.jl capitulos/*.md",
     "build": "myst build --html",
-    "start": "myst start"
+    "start": "myst start",
+    "conformidad": "node herramientas/conformidad.mjs"
   },
   "license": "CC-BY-NC-SA-4.0",
   "dependencies": {
     "mystmd": "1.12.0"
   },
-  "private": true
+  "private": true,
+  "devDependencies": {
+    "tree-sitter-julia": "^0.23.1",
+    "web-tree-sitter": "^0.27.2"
+  }
 }

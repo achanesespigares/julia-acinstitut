@@ -233,8 +233,108 @@ const PLANTILLA = `
 <div class="tz-caja tz-tabla-bloque"><div class="tz-barra"><span>Tabla de traza</span><span class="tz-tabla-sub"></span></div>
   <div style="overflow-x:auto"><table class="tz-tabla"><thead></thead><tbody></tbody></table></div><p class="tz-nota"></p></div>`;
 
+// ── El laboratorio: el programa del alumno, ejecutado aquí mismo por el intérprete del libro ──────
+const EJEMPLOS = [
+  { nombre: "Julia como calculadora", codigo: "precio = 40\ndescuento = 0.15\nfinal = precio * (1 - descuento)\nfinal\nprecio = 50\nfinal" },
+  { nombre: "Vectores y el punto", codigo: "notas = [9.0, 6.5, 4.0, 7.5]\nsubida = notas .+ 0.5\naprobado = notas .>= 5\nsum(aprobado)\nmedia = sum(notas) / length(notas)" },
+  { nombre: "Un bucle que suma", codigo: "notas = [9.0, 6.5, 4.0, 7.5]\ntotal = 0.0\nfor i in eachindex(notas)\n    if notas[i] >= 5\n        total += notas[i]\n    end\nend\ntotal", tabla: "i, notas[i], total" },
+  { nombre: "Una función", codigo: "function media(v)\n    s = 0.0\n    for x in v\n        s += x\n    end\n    return s / length(v)\nend\n\nm = media([2, 4, 9])\nprintln(\"La media es \", m)" },
+  { nombre: "b = a no copia", codigo: "a = [1, 2, 3]\nb = a\nb[1] = 100\na\nc = copy(a)\nc[1] = 0\na" },
+  { nombre: "Un error a propósito", codigo: "edad = 17\nmensaje = \"Tienes \" + edad" },
+];
+const ESTILOS_LAB = `
+.lab{ font:400 15px/1.55 var(--texto); color:var(--tinta); }
+.lab-caja{ border:2px solid var(--tinta); background:#fff; }
+.lab-barra{ display:flex; justify-content:space-between; align-items:center; gap:10px; background:var(--acento); color:#fff; padding:7px 12px; font:600 11px/1 var(--titulo); letter-spacing:.12em; text-transform:uppercase; }
+.lab-barra select{ font:500 12.5px/1.2 var(--texto); letter-spacing:0; text-transform:none; border:0; padding:4px 6px; border-radius:3px; max-width:60%; }
+.lab-editor{ display:flex; font:500 14.5px/1.6 var(--mono); }
+.lab-num{ padding:12px 8px 12px 12px; color:#9A9A9A; text-align:right; user-select:none; white-space:pre; background:#F4F4F4; }
+.lab textarea{ flex:1; min-height:220px; border:0; outline:0; resize:vertical; padding:12px; font:inherit; color:var(--tinta); background:#fff; white-space:pre; overflow-x:auto; tab-size:4; }
+.lab-opciones{ display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:12px 0 0; }
+.lab-opciones label{ font:600 12.5px/1.2 var(--titulo); }
+.lab-opciones input{ font:500 13.5px/1.3 var(--mono); border:1px solid var(--banda); padding:6px 8px; min-width:12em; flex:1; }
+.lab-boton{ font:600 14px/1 var(--titulo); padding:11px 18px; border:2px solid var(--tinta); background:var(--acento); color:#fff; cursor:pointer; }
+.lab-boton:disabled{ opacity:.6; cursor:wait; }
+.lab-aviso{ margin:14px 0 0; padding:12px 14px; border-left:4px solid var(--acento); background:var(--suave); font-size:14.5px; }
+.lab-aviso b{ font-family:var(--titulo); }
+.lab-nota{ margin:10px 0 0; font-size:13px; color:var(--sub); }
+.lab-res{ margin-top:18px; }
+`;
+async function cargaJulia() {
+  if (!cargaJulia.p) cargaJulia.p = (async () => {
+    const base = new URL("../lab/", import.meta.url);
+    const ts = await import(new URL("vendor/web-tree-sitter.js", base).href);
+    await ts.Parser.init();
+    const julia = await ts.Language.load(new URL("vendor/tree-sitter-julia.wasm", base).href);
+    const parser = new ts.Parser(); parser.setLanguage(julia);
+    const jl = await import(new URL("jl/julia.mjs", base).href);
+    const vl = await import(new URL("jl/valores.mjs", base).href);
+    return { parser, jl, vl };
+  })();
+  return cargaJulia.p;
+}
+function laboratorio(el, C) {
+  el.innerHTML = '<style>' + ESTILOS + ESTILOS_JL + ESTILOS_LAB + '</style><div class="tz lab">' +
+    '<div class="lab-caja"><div class="lab-barra"><span>Tu programa en Julia</span><select aria-label="Ejemplos"><option value="">Ejemplos…</option>' +
+    EJEMPLOS.map((e, i) => '<option value="' + i + '">' + esc(e.nombre) + "</option>").join("") + '</select></div>' +
+    '<div class="lab-editor"><div class="lab-num" aria-hidden="true"></div><textarea spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Código Julia"></textarea></div></div>' +
+    '<div class="lab-opciones"><button class="lab-boton">Ejecutar y ver paso a paso</button>' +
+    '<label for="lab-tabla">Seguir en la tabla</label><input id="lab-tabla" placeholder="por ejemplo: i, total (opcional)"></div>' +
+    '<p class="lab-nota">El intérprete del laboratorio entiende la parte de Julia de los capítulos publicados. Si algo no lo sabe hacer, te lo dice.</p>' +
+    '<div class="lab-mensaje"></div><div class="lab-res"></div></div>';
+  const q = s => el.querySelector(s);
+  const ta = q("textarea"), num = q(".lab-num"), tabla = q("#lab-tabla"), boton = q(".lab-boton");
+  const guarda = () => { try { localStorage.setItem("acinstitut-lab-julia", JSON.stringify({ codigo: ta.value, tabla: tabla.value })); } catch (e) {} };
+  const numeros = () => { num.textContent = ta.value.split("\n").map((_, i) => i + 1).join("\n"); };
+  let previo = null;
+  try { previo = JSON.parse(localStorage.getItem("acinstitut-lab-julia")); } catch (e) {}
+  ta.value = previo && previo.codigo ? previo.codigo : EJEMPLOS[0].codigo;
+  tabla.value = previo && previo.tabla ? previo.tabla : "";
+  numeros();
+  ta.addEventListener("input", () => { numeros(); guarda(); });
+  tabla.addEventListener("input", guarda);
+  ta.addEventListener("keydown", e => {         // el tabulador escribe cuatro espacios, como en el REPL
+    if (e.key !== "Tab") return;
+    e.preventDefault();
+    const i = ta.selectionStart; ta.setRangeText("    ", i, ta.selectionEnd, "end"); numeros(); guarda();
+  });
+  q("select").addEventListener("change", e => {
+    const ej = EJEMPLOS[e.target.value]; if (!ej) return;
+    ta.value = ej.codigo; tabla.value = ej.tabla || ""; numeros(); guarda(); e.target.value = "";
+  });
+  const nube = C.nube || "https://2i2c.mybinder.org/v2/gh/achanesespigares/julia-acinstitut/laboratorio?urlpath=lab/tree/laboratorio/laboratorio.ipynb";
+  const aviso = html => { q(".lab-mensaje").innerHTML = html ? '<div class="lab-aviso">' + html + "</div>" : ""; };
+  let limpia = null;
+  boton.addEventListener("click", async () => {
+    boton.disabled = true; const texto = boton.textContent; boton.textContent = "Cargando Julia del laboratorio…";
+    aviso("");
+    try {
+      const { parser, jl, vl } = await cargaJulia();
+      boton.textContent = "Ejecutando…";
+      const codigo = ta.value.replace(/\s+$/, "");
+      const columnas = tabla.value.split(",").map(t => t.trim()).filter(Boolean);
+      let t;
+      try { t = jl.traza(codigo, { columnas, fila_en: "fin_iteracion" }, parser); }
+      catch (e) {
+        if (e instanceof jl.ErrorSintaxis) { aviso("<b>Julia no entiende la línea " + e.linea + ".</b> Revisa los paréntesis, las comillas y que cada <code>for</code>, <code>if</code>, <code>while</code> y <code>function</code> termine con <code>end</code>."); return; }
+        if (e instanceof vl.NoSoportado) { aviso("<b>Esto el laboratorio aún no lo sabe hacer:</b> " + esc(e.que) + ". Puedes probarlo en <a href=\"" + nube + "\" target=\"_blank\" rel=\"noopener\">Julia en la nube</a>, que es Julia de verdad."); return; }
+        throw e;
+      }
+      if (limpia) limpia();
+      const res = q(".lab-res"); res.innerHTML = "";
+      const caja = document.createElement("div"); res.appendChild(caja);
+      limpia = dibujaTraza(caja, { titulo: "Tu programa, paso a paso", etiqueta: "laboratorio", columnas, fila_en: "fin_iteracion" }, t);
+      caja.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (e) {
+      aviso("<b>El laboratorio ha fallado.</b> Es un fallo nuestro, no de tu programa. Puedes probarlo en <a href=\"" + nube + "\" target=\"_blank\" rel=\"noopener\">Julia en la nube</a>. (" + esc(e.message || e) + ")");
+      console.error(e);
+    } finally { boton.disabled = false; boton.textContent = texto; }
+  });
+}
+
 function render({ model, el }) {
   const C = model.get("config") || {};
+  if (C.tipo === "laboratorio") return laboratorio(el, C);
   const D = model.get("traza"), archivo = model.get("archivo");
   if (D && D.pasos) return dibujaTraza(el, C, D);
   if (!archivo) { el.textContent = "Falta la traza: ejecuta herramientas/trazar.jl sobre este capítulo."; return; }
