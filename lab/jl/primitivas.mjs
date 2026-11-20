@@ -18,7 +18,7 @@ export const CONOCIDAS = new Set(("big BigInt BigFloat Float32 Int32 Int8 UInt8 
   "uppercase lowercase titlecase chop chomp reduce foldl foldr mapreduce accumulate cumsum cumprod diff unique sortperm argmax argmin extrema " +
   "Matrix Array transpose reshape hcat vcat size ndims axes vec dot cross norm inv det LinearAlgebra Statistics plot println_ " +
   "struct mutable abstract typeof_ isa eltype convert promote sizeof summarysize objectid ismutable deepcopy view @view @views similar " +
-  "ifelse zip enumerate iterate Iterators sum! maximum! push !== === try catch error throw rethrow DomainError ArgumentError " +
+  "ifelse iterate Iterators sum! maximum! push !== === try catch error throw rethrow DomainError ArgumentError " +
   "time @time @elapsed @btime sleep open read write readline readlines eachline isfile").split(" "));
 
 const NUM = x => V.esNumero(x);
@@ -298,6 +298,7 @@ export function crearPrimitivas(prog) {
   };
   P.itera = x => {
     if (V.esVector(x) || x.T === "Tuple") return V.elementos(x);
+    if (x.T === "Iter") return x.a;
     if (x.T === "String") return [...x.v].map(Ch);
     if (NUM(x)) return [x];
     throw errorMetodo("iterate", [x]);
@@ -606,6 +607,13 @@ export function crearPrimitivas(prog) {
     if (args.length === 2 && kw.has("step") && kw.size === 1) return P.rango(a, kw.get("step"), b);
     throw new NoSoportado("range con estos argumentos");
   };
+  // zip y enumerate dan tuplas para recorrer con un for: for (i, x) in enumerate(v)
+  fn.zip = args => {
+    if (!args.length) throw new NoSoportado("zip sin argumentos");
+    const ls = args.map(P.itera), n = Math.min(...ls.map(l => l.length));
+    return { T: "Iter", nombre: "zip", a: Array.from({ length: n }, (_, i) => ({ T: "Tuple", a: ls.map(l => l[i]) })) };
+  };
+  fn.enumerate = ([x]) => ({ T: "Iter", nombre: "enumerate", a: P.itera(x).map((e, i) => ({ T: "Tuple", a: [I(i + 1), e] })) });
   fn.eachindex = ([x]) => { const n = V.largo(x); return { T: "UnitRange", start: 1n, stop: BigInt(n), oneTo: true }; };
   fn.parse = ([t, s]) => {
     if (s.T !== "String") throw errorMetodo("parse", [t, s]);

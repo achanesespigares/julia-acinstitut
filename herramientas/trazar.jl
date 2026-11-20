@@ -108,6 +108,15 @@ function globales()
     ns
 end
 
+# Cuando aparecen varias locales a la vez (for (nombre, nota) in …), Base.@locals las da en el
+# orden de un diccionario. Se ordenan por su primera aparición en el programa, como se leen.
+const CODIGO = Ref("")
+function primera(n)
+    m = findfirst(Regex("(?<![A-Za-z0-9_])\\Q" * string(n) * "\\E(?![A-Za-z0-9_!])"), CODIGO[])
+    m === nothing ? typemax(Int) : first(m)
+end
+en_orden_de_lectura(ns) = sort!(collect(ns); by = n -> (primera(n), string(n)))
+
 function foto()
     st = T[]
     M = st.modulo
@@ -115,9 +124,7 @@ function foto()
     for n in ns
         n in st.orden || push!(st.orden, n)
     end
-    for n in keys(st.locales)
-        (oculto(n) || n in st.orden) || push!(st.orden, n)
-    end
+    append!(st.orden, en_orden_de_lectura(n for n in keys(st.locales) if !(oculto(n) || n in st.orden)))
     out = Dict{String,Any}[]
     est = Dict{String,Any}()
     orden = String[]
@@ -179,9 +186,7 @@ function pon_locales(locs)
     else
         m = st.pila[end]
         m[:vars] = locs
-        for k in keys(locs)
-            k in m[:orden] || push!(m[:orden], k)
-        end
+        append!(m[:orden], en_orden_de_lectura(k for k in keys(locs) if !(k in m[:orden])))
     end
 end
 
@@ -414,6 +419,7 @@ function traza(codigo::AbstractString, config::AbstractDict)
                 String.(get(config, "columnas", String[])), get(config, "fila_en", "") == "cada_linea",
                 String.(get(config, "ocultar", String[])), salida, Dict{Symbol,Vector{String}}(), Dict{UInt,Int}())
     T[] = st
+    CODIGO[] = codigo
     Core.eval(st.modulo, :(using Random; Random.seed!(1)))
     push!(st.pasos, Dict("linea" => nothing, "tipo" => "inicio", "estado" => Dict(), "orden" => String[],
                          "salida" => "", "nfilas" => 0))

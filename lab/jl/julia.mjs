@@ -82,7 +82,7 @@ class Programa {
   foto() {
     const ns = [...this.glob.keys()].filter(n => !this.oculto(n)).sort();
     for (const n of ns) if (!this.orden.includes(n)) this.orden.push(n);
-    for (const n of this.locales.keys()) if (!this.oculto(n) && !this.orden.includes(n)) this.orden.push(n);
+    this.orden.push(...this.enOrdenDeLectura([...this.locales.keys()].filter(n => !this.oculto(n) && !this.orden.includes(n))));
     const est = {}, orden = [];
     for (const n of this.orden) {
       if (this.locales.has(n) && !this.oculto(n)) { const d = this.describe(this.locales.get(n)); d.local = true; est[n] = d; orden.push(n); }
@@ -115,7 +115,12 @@ class Programa {
   }
   ponLocales(locs) {
     if (!this.pila.length) this.locales = locs;
-    else { const m = this.pila[this.pila.length - 1]; m.vars = locs; for (const k of locs.keys()) if (!m.orden.includes(k)) m.orden.push(k); }
+    else { const m = this.pila[this.pila.length - 1]; m.vars = locs; m.orden.push(...this.enOrdenDeLectura([...locs.keys()].filter(k => !m.orden.includes(k)))); }
+  }
+  // varias locales nuevas a la vez (for (nombre, nota) in …): en el orden en que aparecen en el programa, como trazar.jl
+  enOrdenDeLectura(ns) {
+    const pos = n => { const m = new RegExp("(?<![A-Za-z0-9_])" + n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?![A-Za-z0-9_!])").exec(this.codigo); return m ? m.index : Infinity; };
+    return ns.sort((a, b) => pos(a) - pos(b) || (a < b ? -1 : a > b ? 1 : 0));
   }
 
   // ── Los momentos de la traza (los mismos que trazar.jl) ────────────────

@@ -187,7 +187,7 @@ NumPy necesita los paréntesis por la misma razón que Julia: su `&` también va
 
 ## La grieta
 
-Un filtro aplica la misma regla a todas las casillas. Pero a veces lo que hay que hacer con cada nota depende de la nota: escribir «sobresaliente», «notable» o «suspenso», o parar en cuanto aparece un suspenso. Hace falta un programa que **decida** y que **repita**: el capítulo siguiente.
+Un filtro aplica la misma regla a todas las casillas. Pero a veces lo que hay que hacer con cada nota depende de la nota: escribir «sobresaliente», «notable» o «suspenso», o parar en cuanto aparece un suspenso. Hace falta un programa que **decida** y que **repita**: el capítulo siguiente, [Decidir y repetir](04-decidir-repetir.md).
 
 ## Ejercicios
 

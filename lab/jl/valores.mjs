@@ -51,6 +51,7 @@ export function tipo(x) {
     case "Tuple": return "Tuple{" + x.a.map(tipo).join(", ") + "}";
     case "Funcion": case "Primitiva": return "typeof(" + x.nombre + ")";
     case "Tipo": return "DataType";
+    case "Iter": throw new NoSoportado("guardar o mostrar el resultado de " + x.nombre + "(): por ahora solo se puede recorrer con un for");
     default: return x.T;
   }
 }

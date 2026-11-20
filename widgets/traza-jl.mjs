@@ -396,6 +396,14 @@ function dibujaTraza(el, C, D) {
       const [, v, sec] = varDelFor(p.linea);
       const mf = p.marcos && p.marcos.length ? p.marcos[p.marcos.length - 1].vars : null;
       const val = v && ((mf && mf[v.trim()]) || p.estado[v.trim()]);
+      if (v && /^\s*\(/.test(v)) {      // for (nombre, nota) in zip(…): la pareja se reparte entre las variables
+        const ns = v.replace(/[()\s]/g, "").split(",").filter(Boolean);
+        const vale = n => (mf && mf[n]) || p.estado[n];
+        const partes = ns.filter(vale).map(n => code(n) + " vale " + esc(muestra(vale(n))));
+        const y = xs => xs.length > 1 ? xs.slice(0, -1).join(", ") + " y " + xs[xs.length - 1] : xs.join("");
+        return "Vuelta " + p.vuelta + " del <code>for</code>: llega el elemento " + p.vuelta + " de " + code(sec) + ", que se reparte entre " + y(ns.map(code)) + (partes.length ? ": " + y(partes) : "") + "." +
+          (p.vuelta === 1 ? " Son variables <b>locales</b> del bucle: solo existen dentro de él." : "");
+      }
       return v ? "Vuelta " + p.vuelta + " del <code>for</code>: " + code(v.trim()) + " toma el elemento " + p.vuelta + " de " + code(sec) + (val ? ", que vale " + esc(muestra(val)) : "") + "." +
         (p.vuelta === 1 && val && (val.local || mf) ? " " + code(v.trim()) + " es una variable <b>local</b> del bucle: solo existe dentro de él." : "")
         : "Vuelta " + p.vuelta + " del bucle.";

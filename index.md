@@ -22,11 +22,11 @@ Elige aquí tu ruta. La elección se recuerda en todo el libro, y puedes cambiar
 
 ## Lo que hay ahora
 
-El libro está en construcción. Ya puedes leer [Julia como calculadora](capitulos/01-calculadora.md), [Vectores y rangos](capitulos/02-vectores.md) e [Índices, filtros y el punto](capitulos/03-indices-filtros.md). Y en el [laboratorio](capitulos/laboratorio.md) puedes escribir tu propio Julia y verlo ejecutarse paso a paso, aquí mismo, en el navegador. El plan completo (en negrita, lo que ya está escrito):
+El libro está en construcción. Ya puedes leer [Julia como calculadora](capitulos/01-calculadora.md), [Vectores y rangos](capitulos/02-vectores.md), [Índices, filtros y el punto](capitulos/03-indices-filtros.md) y [Decidir y repetir](capitulos/04-decidir-repetir.md). Y en el [laboratorio](capitulos/laboratorio.md) puedes escribir tu propio Julia y verlo ejecutarse paso a paso, aquí mismo, en el navegador. El plan completo (en negrita, lo que ya está escrito):
 
 | Parte | Capítulos |
 |---|---|
-| I · Primeros pasos con Julia | **Julia como calculadora** · **Vectores y rangos** · **Índices, filtros y el punto** · Decidir y repetir · Funciones |
+| I · Primeros pasos con Julia | **Julia como calculadora** · **Vectores y rangos** · **Índices, filtros y el punto** · **Decidir y repetir** · Funciones |
 | II · Estructuras de datos | Cadenas y caracteres · Tuplas y diccionarios · Matrices · Tipos propios · Tablas de datos |
 | III · Cálculo científico | Álgebra lineal · Gráficos · Probabilidad y simulación · Ecuaciones y optimización · Ecuaciones diferenciales · Datos y estadística |
 | IV · Julia por dentro | El sistema de tipos · Despacho múltiple · Rendimiento · Metaprogramación · Memoria: copias y vistas |
