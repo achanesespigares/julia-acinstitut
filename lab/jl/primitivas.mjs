@@ -325,7 +325,7 @@ export function crearPrimitivas(prog) {
       const els = V.elementos(i);
       let res;
       if (V.eltipo(i) === "Bool") {
-        if (els.length !== n) throw fueraDeLimites(x, repr(i));
+        if (els.length !== n) throw fueraDeLimites(x, els.length + "-element " + tipo(i));
         res = x.a.filter((_, k) => els[k].v);
       } else {
         if (!els.every(e => e.T === "Int64")) throw new ErrorJulia("ArgumentError: invalid index: " + repr(i) + " of type " + tipo(i));
@@ -336,11 +336,31 @@ export function crearPrimitivas(prog) {
     }
     throw new ErrorJulia("ArgumentError: invalid index: " + repr(i) + " of type " + tipo(i));
   };
-  P.ponIndice = (x, i, v) => {
+  P.ponIndice = (x, i, v, punto = false) => {
     if (x.T === "String") throw errorMetodo("setindex!", [x, v, i]);
     if (V.esRango(x)) throw new ErrorJulia("CanonicalIndexError: setindex! not defined for " + tipo(x));
     if (x.T !== "Vector" && x.T !== "BitVector") throw errorMetodo("setindex!", [x, v, i]);
-    if (i.T !== "Int64") throw new NoSoportado("asignar con varios índices a la vez");
+    if (V.esVector(i)) {
+      // v[2:3] = [20, 30], v[filtro] .= 5: las casillas elegidas, en su orden
+      const els = V.elementos(i), n = x.a.length;
+      let pos;
+      if (V.eltipo(i) === "Bool") { if (els.length !== n) throw fueraDeLimites(x, els.length + "-element " + tipo(i)); pos = els.map((e, k) => e.v ? k : -1).filter(k => k >= 0); }
+      else {
+        if (!els.every(e => e.T === "Int64")) throw new ErrorJulia("ArgumentError: invalid index: " + repr(i) + " of type " + tipo(i));
+        if (els.some(e => e.v < 1n || e.v > BigInt(n))) throw fueraDeLimites(x, repr(i));
+        pos = els.map(e => Number(e.v) - 1);
+      }
+      const esVec = V.esVector(v);
+      if (!punto && !esVec) throw new ErrorJulia("ArgumentError: indexed assignment with a single value to possibly many locations is not supported; perhaps use broadcasting `.=` instead?");
+      const lv = esVec ? V.largo(v) : 1;
+      if (esVec && lv !== pos.length && !(punto && lv === 1)) throw new ErrorJulia(punto ? "DimensionMismatch: array could not be broadcast to match destination" : "DimensionMismatch: tried to assign " + lv + " elements to " + pos.length + " destinations");
+      const nuevos = pos.map((_, k) => esVec ? V.elemento(v, lv === 1 ? 1 : k + 1) : v);
+      const conv = nuevos.map(e => x.T === "BitVector" ? (e.T === "Bool" ? e : (() => { throw errInexacto("Bool", e); })()) : V.convierte(e, x.el));
+      pos.forEach((p, k) => { x.a[p] = conv[k]; });
+      return;
+    }
+    if (i.T !== "Int64") throw new ErrorJulia("ArgumentError: invalid index: " + repr(i) + " of type " + tipo(i));
+    if (punto) { P.ponIndice(x, V.vec("Int64", [i]), v, true); return; }
     const k = Number(i.v);
     if (k < 1 || k > x.a.length) throw fueraDeLimites(x, repr(i));
     if (x.T === "BitVector") {

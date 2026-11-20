@@ -77,6 +77,10 @@ pre.tz-codigo{ margin:0; font:400 14px/1.85 var(--mono); overflow-x:auto; backgr
 .tz .cas .v{ min-width:44px; height:40px; padding:0 6px; border:2px solid var(--tinta); margin-left:-2px; display:flex; align-items:center;
   justify-content:center; font:600 16px/1 var(--mono); background:#fff; transition:background .25s; }
 .tz .cas:first-child .v{ margin-left:0; }
+.tz .fila-cas.bool{ flex-wrap:wrap; row-gap:6px; overflow-x:visible; }   /* una máscara se ve entera: sus true, en color */
+.tz .fila-cas.bool .cas .v{ min-width:0; padding:0 6px; font-size:13.5px; }
+.tz .fila-cas.bool .cas.si .v{ color:var(--acento); font-weight:700; }
+.tz .fila-cas.bool .cas.no .v{ color:var(--filete); font-weight:500; }
 .tz .cas .idx{ font:500 11.5px/1 var(--mono); color:var(--banda); }
 .tz .cas .v{ position:relative; white-space:pre; }
 .tz .cas.mas .v{ border-style:dashed; color:var(--banda); font:italic 500 13px/1 var(--mono); padding:0 10px; margin-left:6px; }
@@ -379,6 +383,7 @@ function dibujaTraza(el, C, D) {
     if (v.rango) return "un rango, " + code(v.rango) + " (" + code(corta(v.t)) + "): " + longitud(v) + (longitud(v) === 1 ? " número" : " números") + " seguidos que Julia no guarda uno a uno, sino que calcula cuando se le piden";
     if (v.d) return "una matriz de " + v.d[0] + (v.d[0] === 1 ? " fila" : " filas") + " y " + v.d[1] + (v.d[1] === 1 ? " columna" : " columnas") + " (" + code(v.t) + ")";
     if (v.v && !longitud(v)) return "un vector vacío (" + code(v.t) + ")";
+    if (v.v && v.t === "BitVector") return "un vector de " + code("true") + " y " + code("false") + ", " + longitud(v) + (longitud(v) === 1 ? " casilla" : " casillas") + " (" + code(v.t) + "): una <b>máscara</b>";
     if (v.v) return "un vector de " + longitud(v).toLocaleString("es-ES") + (longitud(v) === 1 ? " elemento" : " elementos") + " (" + code(v.t) + ")" + (v.nv ? ". Aquí se ven los " + v.v.length + " primeros" : "");
     if (v.tupla) return "una tupla de " + v.el.length + (v.el.length === 1 ? " elemento" : " elementos") + " (" + code(v.t) + ")";
     return "un valor de tipo " + code(v.t);
@@ -442,6 +447,11 @@ function dibujaTraza(el, C, D) {
       const gemelo = b.id ? nombres(ahora, orden).find(m => m !== n && antes[m] && antes[m].id === b.id) : null;
       if (!a && gemelo) { frases.push("Se crea " + code(n) + ", pero no es un vector nuevo: es <b>otro nombre</b> para el mismo vector que " + code(gemelo) + ". Julia no copia los vectores al asignarlos."); continue; }
       const copia = ((L[p.linea - 1] || "").match(/=\s*copy\(\s*(\w+)\s*\)/) || [])[1];
+      const trozo = ((L[p.linea - 1] || "").match(/^\s*\w+\s*=\s*(\w+)\[(.+)\]\s*$/) || []);
+      if (!a && trozo[1] && b.v && !b.e && trozo[1] !== n && ahora[trozo[1]] && ahora[trozo[1]].v) {
+        const k = longitud(b);
+        frases.push("Se crea " + code(n) + ": un vector <b>nuevo</b> con las casillas de " + code(trozo[1]) + " que elige " + code("[" + trozo[2] + "]") + (k ? ", " + k + (k === 1 ? " elemento" : " elementos") : ", ninguna: está vacío") + " (" + code(b.t) + ")."); continue;
+      }
       if (!a && copia && b.id) { frases.push("Se crea " + code(n) + ", una <b>copia</b> de " + code(copia) + ": un vector nuevo, con los mismos valores pero independiente."); continue; }
       if (!a) { frases.push("Se crea " + code(n) + ", " + quees(b) + "." + (b.local && !mp ? " Es una variable local del bucle." : "")); continue; }
       if (b.id && a.id === b.id && !igual(a, b) && hechos.some(m => ahora[m] && ahora[m].id === b.id)) {
@@ -456,6 +466,7 @@ function dibujaTraza(el, C, D) {
       if (a.v && b.v && a.v.length === b.v.length && !a.nv && !b.nv && a.t === b.t) {
         const camb = b.v.map((x, i) => x !== a.v[i] ? i : -1).filter(i => i >= 0);
         if (camb.length === 1) frases.push("Cambia " + code(n + "[" + (camb[0] + 1) + "]") + ": valía " + esc(a.v[camb[0]]) + " y ahora vale " + esc(b.v[camb[0]]) + ".");
+        else if (camb.length <= 4) frases.push("Cambian " + camb.map(i => code(n + "[" + (i + 1) + "]")).slice(0, -1).join(", ") + " y " + code(n + "[" + (camb[camb.length - 1] + 1) + "]") + ": ahora valen " + camb.map(i => esc(b.v[i])).slice(0, -1).join(", ") + " y " + esc(b.v[camb[camb.length - 1]]) + ".");
         else frases.push("Cambian " + camb.length + " elementos de " + code(n) + ".");
         hechos.push(n); continue;
       }
@@ -500,8 +511,9 @@ function dibujaTraza(el, C, D) {
     const cambia = i => previo && previo.v && previo.v.length === v.v.length && previo.v[i] !== v.v[i];
     if (!opciones.grande && v.v.some(x => String(x).length > 24))
       return '<div class="fila-vert">' + v.v.map((x, i) => '<div class="cas-v' + (cambia(i) ? " cambia" : "") + '"><span class="idx">[' + (i + 1) + ']</span><span class="v">' + esc(x) + "</span></div>").join("") + "</div>";
-    return '<div class="fila-cas' + (opciones.grande ? " grande" + (v.v.some(x => String(x).length > 4) ? " largo" : "") : "") + '">' + v.v.map((x, i) =>
-      '<span class="cas' + (cambia(i) ? " cambia" : "") + (opciones.foco === i + 1 ? " foco" : "") + '"><span class="v">' + esc(x) + '</span><span class="idx">[' + (i + 1) + "]</span></span>").join("") +
+    const bool = v.el === "Bool" && v.v.every(x => x === "true" || x === "false");
+    return '<div class="fila-cas' + (bool ? " bool" : "") + (opciones.grande ? " grande" + (v.v.some(x => String(x).length > 4) ? " largo" : "") : "") + '">' + v.v.map((x, i) =>
+      '<span class="cas' + (bool ? (x === "true" ? " si" : " no") : "") + (cambia(i) ? " cambia" : "") + (opciones.foco === i + 1 ? " foco" : "") + '"><span class="v">' + esc(x) + '</span><span class="idx">[' + (i + 1) + "]</span></span>").join("") +
       (v.nv ? '<span class="cas mas"><span class="v">… y ' + (v.nv - v.v.length).toLocaleString("es-ES") + ' más</span></span>' : "") +
       (opciones.foco ? '<span class="puntero"><span class="et">' + esc(opciones.puntero) + " = " + opciones.foco + '</span><span class="flecha"></span></span>' : "") + "</div>";
   }

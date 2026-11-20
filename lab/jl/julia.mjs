@@ -393,6 +393,12 @@ class Programa {
       case "parenthesized_expression": return this.valor(hijos(n)[0], sc);
       case "assignment": return this.asignacion(n, sc);
       case "compound_assignment_expression": {
+        if (opDe(n) === ".=") {         // x .= v, v[filtro] .= 5: se cambian las casillas, el vector es el mismo
+          const [izq, der] = hijos(n), v = this.valor(der, sc);
+          if (izq.type === "index_expression") { const [obj, ind] = hijos(izq); const x = this.valor(obj, sc); this.prim.ponIndice(x, this.indices(x, ind, sc), v, true); }
+          else this.prim.difundeAsignacion(this.valor(izq, sc), v);
+          return v;
+        }
         const [izq, der] = hijos(n), op = opDe(n).slice(0, -1);
         if (izq.type !== "identifier") {
           const v = this.prim.binaria(op, this.valor(izq, sc), this.valor(der, sc));
@@ -405,6 +411,10 @@ class Programa {
       case "unary_expression": {
         const op = opDe(n), x = hijos(n)[0];
         if (op === "-" && (x.type === "integer_literal" || x.type === "float_literal")) return this.prim.unaria("-", this.valor(x, sc));
+        if (op.length > 1 && op.startsWith(".")) {
+          const v = this.valor(x, sc);
+          return this.prim.difunde({ T: "Primitiva", nombre: op.slice(1), f: ([e]) => this.prim.unaria(op.slice(1), e) }, [v]);
+        }
         return this.prim.unaria(op, this.valor(x, sc));
       }
       case "juxtaposition_expression": { const [a, b] = hijos(n); return this.prim.binaria("*", this.valor(a, sc), this.valor(b, sc)); }
@@ -514,6 +524,22 @@ class Programa {
     if (op === ".=") { const v = this.valor(b, sc); this.prim.difundeAsignacion(this.valor(a, sc), v); return v; }
     if (op === "->" ) throw new NoSoportado("->");
     if (op === "|>") { const x = this.valor(a, sc), f = this.valor(b, sc); return this.aplica(f, [x], new Map()); }
+    // .&& y .||: casilla a casilla, y cada casilla tiene que ser true o false
+    if (op === ".&&" || op === ".||") {
+      const x = this.valor(a, sc), y = this.valor(b, sc);
+      const f = { T: "Primitiva", nombre: op.slice(1), f: ([p, q]) => {
+        if (p.T !== "Bool") throw new ErrorJulia("TypeError: non-boolean (" + V.tipo(p) + ") used in boolean context");
+        return (op === ".&&" ? !p.v : p.v) ? p : q; } };
+      return this.prim.difunde(f, [x, y]);
+    }
+    // comparaciones encadenadas con punto: a .< b .< c es (a .< b) .& (b .< c)
+    const esCmpPunto = o => o && o.startsWith(".") && COMPARA.has(o.slice(1));
+    if (esCmpPunto(op) && a.type === "binary_expression" && esCmpPunto(opDe(a))) {
+      const [a1, a2] = hijos(a);
+      const x1 = this.valor(a1, sc), m = this.valor(a2, sc), z = this.valor(b, sc);
+      const izq = this.prim.difunde(opDe(a).slice(1), [x1, m]), der = this.prim.difunde(op.slice(1), [m, z]);
+      return this.prim.difunde("&", [izq, der]);
+    }
     // comparaciones encadenadas: 1 < x <= 3
     if (COMPARA.has(op) && a.type === "binary_expression" && COMPARA.has(opDe(a))) {
       const [a1, a2] = hijos(a);

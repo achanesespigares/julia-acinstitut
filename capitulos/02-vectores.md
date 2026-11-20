@@ -194,7 +194,7 @@ Julia y NumPy comparten vectores entre nombres; R los copia. Julia y R cuentan d
 
 ## La grieta
 
-Ya sabes sacar la casilla 2 y saber qué notas aprueban. Pero ¿cómo se saca un trozo del vector, o solo las notas aprobadas, o las casillas que cumplen dos condiciones a la vez?
+Ya sabes sacar la casilla 2 y saber qué notas aprueban. Pero ¿cómo se saca un trozo del vector, o solo las notas aprobadas, o las casillas que cumplen dos condiciones a la vez? Lo verás en [Índices, filtros y el punto](03-indices-filtros.md).
 
 ## Ejercicios
 
