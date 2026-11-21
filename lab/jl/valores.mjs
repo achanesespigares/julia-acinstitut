@@ -57,6 +57,7 @@ export function tipo(x) {
     case "Pair": return "Pair{" + tipo(x.a) + ", " + tipo(x.b) + "}";
     case "Dict": return "Dict{" + x.K + ", " + x.V + "}";
     case "Matrix": return GANCHOS.tipoM(x);
+    case "Struct": return x.tipo;
     case "Claves": return x.que === "keys" ? "Base.KeySet{" + x.d.K + ", " + tipo(x.d) + "}" : "Base.ValueIterator{" + tipo(x.d) + "}";
     case "NamedTuple": return "@NamedTuple{" + x.nombres.map((n, i) => n + "::" + tipo(x.a[i])).join(", ") + "}";
     case "Iter": throw new NoSoportado("guardar o mostrar el resultado de " + x.nombre + "(): por ahora solo se puede recorrer con un for");
@@ -199,6 +200,7 @@ export function repr(x, dentro = false) {
     case "Tipo": return x.nombre;
     case "Pair": return repr(x.a, true) + " => " + repr(x.b, true);
     case "Matrix": return GANCHOS.reprM(x);
+    case "Struct": return x.tipo + "(" + x.a.map(e => repr(e)).join(", ") + ")";      // show de un tipo propio: Alumna("Ana", 2, 9.0)
     case "Dict": {
       const es = x.t.entradas();
       const pref = es.length && implicito(x.K) && implicito(x.V) ? "Dict" : tipo(x);
@@ -322,6 +324,7 @@ export function promueve(tipos) {
   if (u.length === 1 && u[0] === "Rational") return "Rational{Int64}";
   if (u.length === 1) return u[0] === "Irrational" ? "Float64" : u[0];
   if (u.every(t => t === "String" || t === "SubString{String}" || t === "AbstractString")) return "AbstractString";
+  if (GANCHOS.esTipoPropio && u.some(t => GANCHOS.esTipoPropio(t))) return GANCHOS.uneTipos(u);     // tipos propios: su supertipo común, o Any
   if (u.some(t => t.startsWith("Pair{"))) throw new NoSoportado("un vector de parejas de tipos distintos");
   if (u.every(t => t in RANGO_NUM)) {
     if (u.includes("Float64") || u.includes("Irrational")) return "Float64";
@@ -334,6 +337,7 @@ const nombreTipo = t => t === "Rational" ? "Rational{Int64}" : t;
 // convierte un valor al tipo de las casillas de un vector (convert(T, x))
 export function convierte(x, el) {
   if (el === "Any") return x;
+  if (x.T === "Struct" && GANCHOS.esSubtipo && GANCHOS.esSubtipo(x.tipo, el)) return x;
   const t = ["String", "Pair", "Tuple", "NamedTuple", "Dict"].includes(x.T) ? tipo(x) : nombreTipo(x.T);
   if (t === el) return x;
   if (x.T === "String" && el === "String") return { T: "String", v: x.v };
@@ -362,7 +366,7 @@ export function errorMetodo(f, args, cabecera) {
     const [nom, op] = PISTAS[f];
     t += "\nFor element-wise " + nom + ", use broadcasting with dot syntax: " + (arr(args[0]) ? "array " + op + " scalar" : "scalar " + op + " array");
   }
-  const esTipo = ["Int64", "Float64", "String", "Bool", "Char"].includes(f);
+  const esTipo = ["Int64", "Float64", "String", "Bool", "Char"].includes(f) || !!(GANCHOS.esTipoPropio && GANCHOS.esTipoPropio(f));
   const concatena = f === "+" && args && args.length && args.every(a => a.T === "String")
     ? "\nString concatenation is performed with * (See also: https://docs.julialang.org/en/v1/manual/strings/#man-concatenation)." : "";
   return new ErrorJulia(t + (esTipo ? "\nThe type `" + f + "` exists, but no method is defined for this combination of argument types when trying to construct it."

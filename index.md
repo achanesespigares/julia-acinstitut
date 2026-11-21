@@ -22,12 +22,12 @@ Elige aquí tu ruta. La elección se recuerda en todo el libro, y puedes cambiar
 
 ## Lo que hay ahora
 
-El libro está en construcción. Ya puedes leer [Julia como calculadora](capitulos/01-calculadora.md), [Vectores y rangos](capitulos/02-vectores.md), [Índices, filtros y el punto](capitulos/03-indices-filtros.md), [Decidir y repetir](capitulos/04-decidir-repetir.md) y [Funciones](capitulos/05-funciones.md), que completan la parte I, y, de la parte II, [Cadenas y caracteres](capitulos/06-cadenas.md), [Tuplas y diccionarios](capitulos/07-tuplas-diccionarios.md) y [Matrices](capitulos/08-matrices.md). Y en el [laboratorio](capitulos/laboratorio.md) puedes escribir tu propio Julia y verlo ejecutarse paso a paso, aquí mismo, en el navegador. El plan completo (en negrita, lo que ya está escrito):
+El libro está en construcción. Ya puedes leer [Julia como calculadora](capitulos/01-calculadora.md), [Vectores y rangos](capitulos/02-vectores.md), [Índices, filtros y el punto](capitulos/03-indices-filtros.md), [Decidir y repetir](capitulos/04-decidir-repetir.md) y [Funciones](capitulos/05-funciones.md), que completan la parte I, y, de la parte II, [Cadenas y caracteres](capitulos/06-cadenas.md), [Tuplas y diccionarios](capitulos/07-tuplas-diccionarios.md), [Matrices](capitulos/08-matrices.md) y [Tipos propios](capitulos/09-tipos-propios.md). Y en el [laboratorio](capitulos/laboratorio.md) puedes escribir tu propio Julia y verlo ejecutarse paso a paso, aquí mismo, en el navegador. El plan completo (en negrita, lo que ya está escrito):
 
 | Parte | Capítulos |
 |---|---|
 | I · Primeros pasos con Julia | **Julia como calculadora** · **Vectores y rangos** · **Índices, filtros y el punto** · **Decidir y repetir** · **Funciones** |
-| II · Estructuras de datos | **Cadenas y caracteres** · **Tuplas y diccionarios** · **Matrices** · Tipos propios · Tablas de datos |
+| II · Estructuras de datos | **Cadenas y caracteres** · **Tuplas y diccionarios** · **Matrices** · **Tipos propios** · Tablas de datos |
 | III · Cálculo científico | Álgebra lineal · Gráficos · Probabilidad y simulación · Ecuaciones y optimización · Ecuaciones diferenciales · Datos y estadística |
 | IV · Julia por dentro | El sistema de tipos · Despacho múltiple · Rendimiento · Metaprogramación · Memoria: copias y vistas |
 | V · Trabajar como profesional | Errores y pruebas · Entornos y paquetes · Cuadernos reactivos con Pluto · Paralelismo |

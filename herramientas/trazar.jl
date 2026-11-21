@@ -44,8 +44,11 @@ end
 const T = Ref{Estado}()
 
 # ── Cómo se describe un valor ────────────────────────────────────────────
-un_valor(x) = repr(x)
-nombre_tipo(x) = string(typeof(x))
+# El programa corre en un módulo propio, Module(:Main), y Julia escribe sus tipos como Main.Main.Alumna. En el
+# REPL, un tipo definido por el usuario se escribe Alumna: se quita ese prefijo de todo lo que se escribe.
+sin_main(s) = replace(s, "Main.Main." => "")
+un_valor(x) = sin_main(repr(x))
+nombre_tipo(x) = sin_main(string(typeof(x)))
 es_escalar(x) = x isa Union{Number,AbstractString,AbstractChar,Symbol,Nothing,Missing}
 
 un_id(x) = (ids = T[].ids; get!(ids, objectid(x), length(ids) + 1))
@@ -70,14 +73,14 @@ function describe(x, prof = 0)
     if x isa AbstractVector
         n = length(x)
         xs = n > 30 ? x[1:20] : x
-        d = Dict{String,Any}("t" => nombre_tipo(x), "v" => [un_valor(e) for e in xs], "el" => string(eltype(x)))
+        d = Dict{String,Any}("t" => nombre_tipo(x), "v" => [un_valor(e) for e in xs], "el" => sin_main(string(eltype(x))))
         n > 30 && (d["nv"] = n)
         x isa AbstractRange && (d["rango"] = un_valor(x))
         x isa AbstractRange || (d["id"] = un_id(x))
         return d
     end
     if x isa AbstractMatrix && length(x) <= 400
-        return Dict("t" => nombre_tipo(x), "d" => collect(size(x)), "el" => string(eltype(x)), "id" => un_id(x),
+        return Dict("t" => nombre_tipo(x), "d" => collect(size(x)), "el" => sin_main(string(eltype(x))), "id" => un_id(x),
                     "v" => [un_valor(e) for e in vec(x)])
     end
     if x isa Tuple && prof < 4 && length(x) <= 30
@@ -91,7 +94,15 @@ function describe(x, prof = 0)
         return Dict("t" => nombre_tipo(x), "tupla" => true,
                     "el" => [Dict("nombre" => string(k), "v" => describe(v, prof + 1)) for (k, v) in pairs(x)])
     end
-    Dict{String,Any}("t" => nombre_tipo(x), "r" => sprint(show, MIME"text/plain"(), x; context = (:limit => true, :displaysize => (24, 80))))
+    # un tipo propio (definido en el programa): una ficha con sus campos, como una tupla con nombre;
+    # si es mutable, con su identidad, para ver cuándo dos nombres son el mismo objeto
+    if parentmodule(typeof(x)) === T[].modulo && isstructtype(typeof(x)) && prof < 4
+        d = Dict{String,Any}("t" => nombre_tipo(x), "tupla" => true, "struct" => true,
+                             "el" => [Dict("nombre" => string(f), "v" => describe(getfield(x, f), prof + 1)) for f in fieldnames(typeof(x))])
+        ismutable(x) && (d["mutable"] = true; d["id"] = un_id(x))
+        return d
+    end
+    Dict{String,Any}("t" => nombre_tipo(x), "r" => sin_main(sprint(show, MIME"text/plain"(), x; context = (:limit => true, :displaysize => (24, 80)))))
 end
 
 function corto(x)
@@ -152,7 +163,7 @@ end
 
 function lee_pantalla()
     flush(stdout)
-    read(T[].salida, String)
+    sin_main(read(T[].salida, String))
 end
 
 function anota(paso::Dict)
@@ -447,7 +458,7 @@ function traza(codigo::AbstractString, config::AbstractDict)
                     Core.eval(st.modulo, REPL.softscope(reescribe(a, linea, 0)))
                 end
             catch err
-                error_txt = replace(Base.invokelatest(sprint, showerror, err isa LoadError ? err.error : err), "`Main.Main`" => "`Main`")
+                error_txt = sin_main(replace(Base.invokelatest(sprint, showerror, err isa LoadError ? err.error : err), "`Main.Main`" => "`Main`"))
                 # la lista de «Closest candidates» de un MethodError no cabe en el visualizador
                 error_txt = strip(first(split(error_txt, "\n\nClosest candidates")))
                 # desde aquí, como en el REPL, hay que mirar la «edad del mundo» más reciente: las variables que
@@ -460,7 +471,7 @@ function traza(codigo::AbstractString, config::AbstractDict)
     if error_txt !== nothing
         p = Dict{String,Any}("linea" => st.actual, "tipo" => "error", "error" => error_txt,
                              "estado" => momento[1], "orden" => momento[2],
-                             "salida" => read(salida, String), "nfilas" => length(st.filas))
+                             "salida" => sin_main(read(salida, String)), "nfilas" => length(st.filas))
         momento[3] === nothing || (p["marcos"] = momento[3])
         push!(st.pasos, p)
     end

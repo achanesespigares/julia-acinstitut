@@ -225,7 +225,7 @@ En NumPy, `*` multiplica casilla a casilla y el producto de matrices es `@`; en 
 
 ## La grieta
 
-Una matriz guarda las notas, pero solo las notas: todas sus casillas tienen que ser del mismo tipo, y los nombres de los alumnos no caben. ¿Cómo se guarda una alumna entera, con su nombre, su curso y sus notas, y se le pone nombre al tipo para escribir funciones que trabajen con alumnas? Hace falta un tipo nuevo, tuyo: lo verás en *Tipos propios*.
+Una matriz guarda las notas, pero solo las notas: todas sus casillas tienen que ser del mismo tipo, y los nombres de los alumnos no caben. ¿Cómo se guarda una alumna entera, con su nombre, su curso y sus notas, y se le pone nombre al tipo para escribir funciones que trabajen con alumnas? Hace falta un tipo nuevo, tuyo: lo verás en [Tipos propios](09-tipos-propios.md).
 
 ## Ejercicios
 

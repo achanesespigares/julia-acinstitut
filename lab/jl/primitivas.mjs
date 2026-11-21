@@ -7,6 +7,7 @@ import * as V from "./valores.mjs";
 import * as TX from "./textos.mjs";
 import * as DC from "./dict.mjs";
 import * as MX from "./matrices.mjs";
+import * as TP from "./tipos.mjs";
 import { ErrorJulia, NoSoportado, I, F, B, S, Ch, NADA, FALTA, errorMetodo, aNum, tipo, repr } from "./valores.mjs";
 
 const T = nombre => ({ T: "Tipo", nombre });
@@ -70,6 +71,8 @@ export function crearPrimitivas(prog) {
     if (op === "≠") op = "!=";
     if (op === "≤") op = "<=";
     if (op === "≥") op = ">=";
+    if (op === "isa") { if (b.T !== "Tipo") throw new ErrorJulia("TypeError: in isa, expected Type, got a value of type " + tipo(b)); return B(P.esDelTipo(a, b.nombre)); }
+    if (op === "<:" && a.T === "Tipo" && b.T === "Tipo") { if (!P.esTipoPropio(a.nombre) && a.nombre !== b.nombre) throw new NoSoportado("<: entre tipos de Julia"); return B(P.esSubtipo(a.nombre, b.nombre)); }
     if (op === "===") return B(P.identicos(a, b));
     if (op === "!==") return B(!P.identicos(a, b));
     if (op === "∈" || op === "in") return P.pertenece(a, b);
@@ -182,6 +185,7 @@ export function crearPrimitivas(prog) {
       return aNum(a) === aNum(b);
     }
     if (MX.esMatriz(a) || MX.esMatriz(b)) return P.igualesM(a, b);
+    if (a.T === "Struct" || b.T === "Struct") return P.identicosStruct(a, b);      // == de un tipo propio es ===
     if (V.esVector(a) && V.esVector(b)) {
       const n = V.largo(a); if (n !== V.largo(b)) return false;
       for (let i = 1; i <= n; i++) if (!P.iguales(V.elemento(a, i), V.elemento(b, i))) return false;
@@ -198,6 +202,7 @@ export function crearPrimitivas(prog) {
     return a === b;
   };
   P.identicos = (a, b) => {
+    if (a.T === "Struct" || b.T === "Struct") return P.identicosStruct(a, b);
     if (MX.esVista(a) && MX.esVista(b)) return a.vista === b.vista && a.p === b.p;     // A' === A' (la vista no tiene identidad propia)
     if (a.T === "Vector" || a.T === "BitVector" || a.T === "Matrix") return a === b;
     if (a.T !== b.T) return false;
@@ -299,7 +304,8 @@ export function crearPrimitivas(prog) {
   P.recoge = (res, bits = false) => {
     if (!res.length) throw new NoSoportado("un vector vacío sin tipo");
     if (res.some(MX.esMatriz)) throw new NoSoportado("un vector de matrices");
-    const tipos = [...new Set(res.map(r => r.T === "Rational" ? "Rational{Int64}" : r.T === "Vector" || r.T === "String" || r.T === "Pair" ? tipo(r) : r.T))];
+    const tipos = [...new Set(res.map(r => r.T === "Rational" ? "Rational{Int64}" : r.T === "Vector" || r.T === "String" || r.T === "Pair" || r.T === "Struct" ? tipo(r) : r.T))];
+    if (res.some(r => r.T === "Struct")) return V.vec(V.promueve(tipos), res);
     if (tipos.length > 1 && tipos.every(t => t === "String" || t === "SubString{String}")) return V.vec("AbstractString", res);
     if (tipos.length === 1) {
       if (tipos[0] === "Bool" && bits) return V.bitvec(res);
@@ -314,13 +320,13 @@ export function crearPrimitivas(prog) {
     if (!vals.length) return V.vec("Any", []);
     if (vals.some(v => MX.esMatriz(v))) throw new NoSoportado("un vector de matrices");
     if (vals.some(v => V.esVector(v) || v.T === "Tuple")) throw new NoSoportado("vectores de vectores (o concatenar con [a, b])");
-    const tipos = vals.map(v => v.T === "Rational" ? "Rational{Int64}" : v.T === "String" || v.T === "Pair" ? tipo(v) : v.T);
+    const tipos = vals.map(v => v.T === "Rational" ? "Rational{Int64}" : v.T === "String" || v.T === "Pair" || v.T === "Struct" ? tipo(v) : v.T);
     if (tipos.some(t => t === "Nothing" || t === "Missing") && new Set(tipos).size > 1) throw new NoSoportado("vectores con nothing o missing mezclados (Union)");
     const el = V.promueve(tipos);
     return V.vec(el, vals.map(v => V.convierte(v, el)));
   };
   P.vectorTipado = (el, vals) => {
-    if (!["Int64", "Float64", "String", "Bool", "Char", "Any", "SubString{String}", "AbstractString"].includes(el)) throw new NoSoportado("vectores de " + el);
+    if (!["Int64", "Float64", "String", "Bool", "Char", "Any", "SubString{String}", "AbstractString"].includes(el) && !P.esTipoPropio(el)) throw new NoSoportado("vectores de " + el);
     return V.vec(el, vals.map(v => V.convierte(v, el)));
   };
   P.rango = (a, s, b) => {
@@ -432,10 +438,12 @@ export function crearPrimitivas(prog) {
     }
     if (/^Matrix\{(\w+)\}$/.test(tt)) return MX.esMatriz(v) && !v.vista && !v.bit && v.el === tt.slice(7, -1);
     if (/^Vector\{(\w+)\}$/.test(tt)) return v.T === "Vector" && v.el === tt.slice(7, -1);
+    if (P.esTipoPropio(tt)) return v.T === "Struct" && P.esSubtipo(v.tipo, tt);
     throw new NoSoportado("el tipo " + t + " en un argumento");
   };
   // Int(x), Float64(x)…
-  P.construye = (nombre, args) => {
+  P.construye = (nombre, args, kw) => {
+    if (P.esTipoPropio(nombre)) return P.creaStruct(nombre, args, kw);
     const [x] = args;
     if (args.length !== 1) throw new NoSoportado(nombre + "() con " + args.length + " argumentos");
     if (nombre === "Int64") {
@@ -698,6 +706,7 @@ export function crearPrimitivas(prog) {
   TX.funcionesDeTexto(fn, prog);
   DC.funcionesDeDict(fn, P, prog);
   MX.operacionesDeMatrices(P, fn, prog);
+  TP.tiposPropios(P, fn);
   const tabla = new Map(Object.entries(fn).map(([k, f]) => [k, { T: "Primitiva", nombre: k, f }]));
   const constantes = { π: V.PI, pi: V.PI, ℯ: V.E, Inf: F(Infinity), NaN: F(NaN), nothing: NADA, missing: FALTA, true: B(true), false: B(false) };
   P.tiene = n => tabla.has(n) || n in constantes;

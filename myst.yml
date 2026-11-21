@@ -30,6 +30,7 @@ project:
         - file: capitulos/06-cadenas.md
         - file: capitulos/07-tuplas-diccionarios.md
         - file: capitulos/08-matrices.md
+        - file: capitulos/09-tipos-propios.md
 site:
   template: book-theme
   options:

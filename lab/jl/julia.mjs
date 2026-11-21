@@ -93,7 +93,12 @@ class Programa {
     if (x.T === "Tuple" && prof < 4 && x.a.length <= 30) return { t: V.tipo(x), tupla: true, el: x.a.map(e => ({ v: this.describe(e, prof + 1) })) };
     if (x.T === "NamedTuple" && prof < 4 && x.a.length <= 30) return { t: V.tipo(x), tupla: true, el: x.a.map((e, i) => ({ nombre: x.nombres[i], v: this.describe(e, prof + 1) })) };
     if (x.T === "Dict" && x.t.count <= 30) { const es = x.t.entradas(); return { t: V.tipo(x), dict: true, k: es.map(([k]) => V.repr(k)), v: es.map(([, w]) => V.repr(w)), id: this.unId(x) }; }
-    if (x.T === "Tipo") return { t: "DataType", e: true, v: [x.nombre] };
+    if (x.T === "Tipo") return { t: "DataType", r: this.prim.muestra(x) };
+    if (x.T === "Struct" && prof < 4) {          // como trazar.jl: una ficha con sus campos; si es mutable, con identidad
+      const d = { t: x.tipo, tupla: true, struct: true, el: this.prim.tipos.get(x.tipo).campos.map((c, i) => ({ nombre: c.nombre, v: this.describe(x.a[i], prof + 1) })) };
+      if (x.mut) { d.mutable = true; d.id = this.unId(x); }
+      return d;
+    }
     return { t: V.tipo(x), r: this.prim.muestra(x) };
   }
   corto(x) {
@@ -248,7 +253,14 @@ class Programa {
         throw new Retorno(v);
       }
       case "using_statement": case "import_statement": throw new NoSoportado("cargar paquetes (using)");
-      case "struct_definition": throw new NoSoportado("los tipos propios (struct)");
+      case "struct_definition": case "abstract_definition": {
+        if (nivel !== 0) throw new NoSoportado("definir un tipo dentro de un bloque");
+        this.va(l);
+        const nombre = this.defineTipo(n);
+        this.asigna(nombre, { T: "Tipo", nombre }, sc);
+        this.paso(l, sc);
+        return NADA;
+      }
       case "macro_definition": case "module_definition": throw new NoSoportado(n.type);
       case "const_statement": throw new NoSoportado("const");
     }
@@ -340,6 +352,36 @@ class Programa {
     return NADA;
   }
 
+  // ── Tipos propios ──────────────────────────────────────────────────────
+  // struct Alumna … end, mutable struct Ficha … end, abstract type Figura end, struct Circulo <: Figura … end
+  defineTipo(n) {
+    const [cab, ...campos] = hijos(n);
+    if (cab.type !== "type_head") throw new NoSoportado("esta definición de tipo");
+    let [nom] = hijos(cab), padre = "Any";
+    if (nom.type === "binary_expression" && opDe(nom) === "<:") { const [a, b] = hijos(nom); nom = a; padre = b.text; }
+    if (nom.type !== "identifier") throw new NoSoportado("los tipos con parámetros (" + nom.text + ")");
+    const abstracto = n.type === "abstract_definition";
+    const def = { nombre: nom.text, padre, abstracto, mutable: !abstracto && /^mutable\b/.test(n.text), campos: [] };
+    for (const c of campos) {
+      if (c.type === "identifier") def.campos.push({ nombre: c.text, tipo: null });
+      else if (c.type === "typed_expression") { const [a, t] = hijos(c); def.campos.push({ nombre: a.text, tipo: this.nombreTipo(t) }); }
+      else throw new NoSoportado("esto dentro de un struct (" + c.type.replace(/_/g, " ") + ")");
+    }
+    this.prim.defineTipo(def);
+    return def.nombre;
+  }
+  // el método de f que toca con estos argumentos: el más específico de los que encajan (despacho múltiple)
+  eligeMetodo(f, args) {
+    const n = args.length;
+    const cands = f.metodos.filter(m => {
+      const obl = m.params.filter(p => !p.defecto).length;
+      return n >= obl && n <= m.params.length && m.params.every((p, i) => i >= n || !p.tipo || this.prim.esDelTipo(args[i], p.tipo));
+    });
+    let mejor = null, pm = -1;
+    for (const m of cands) { const k = m.params.reduce((s, p) => s + this.prim.profundidad(p.tipo), 0); if (k >= pm) { mejor = m; pm = k; } }
+    return mejor;
+  }
+
   // ── Funciones del programa ─────────────────────────────────────────────
   esDefCorta(n) { const izq = hijos(n)[0]; return izq && (izq.type === "call_expression" || (izq.type === "where_expression")); }
   defineFuncion(n, nivel, sc) {
@@ -367,6 +409,13 @@ class Programa {
     if (!this.firmas.has(nombre)) this.firmas.set(nombre, []);
     this.firmas.get(nombre).push(this.escribe(llamada));
     let f = (sc ? this.locs(sc).get(nombre) : null) || this.glob.get(nombre);
+    if (f && f.T === "Tipo" && this.prim.esTipoPropio(f.nombre)) {      // Alumna(nombre) = …: un constructor más para el tipo
+      const def = this.prim.tipos.get(f.nombre);
+      if (!def.fn) def.fn = nuevaFuncion(nombre);
+      def.fn.metodos.push({ params, kw, cuerpo, linea: l });
+      if (nivel === 0) { this.va(l); this.paso(l, sc); }
+      return NADA;
+    }
     if (!f || f.T !== "Funcion") f = nuevaFuncion(nombre);
     f.metodos.push({ params, kw, cuerpo, linea: l });
     if (nivel === 0) { this.va(l); this.asigna(nombre, f, sc); this.paso(l, sc); return NADA; }
@@ -375,11 +424,7 @@ class Programa {
   }
   llamaPrograma(f, args, kwargs) {
     const n = args.length;
-    const cands = f.metodos.filter(m => {
-      const obl = m.params.filter(p => !p.defecto).length;
-      return n >= obl && n <= m.params.length && m.params.every((p, i) => i >= n || !p.tipo || this.prim.esDelTipo(args[i], p.tipo));
-    });
-    const met = cands[cands.length - 1];
+    const met = this.eligeMetodo(f, args);
     if (!met) throw V.errorMetodo(f.nombre, args);
     const amb = { vars: new Map(), padre: null, funcion: true, globales: new Set() };
     met.params.forEach((p, i) => amb.vars.set(p.nombre, i < n ? args[i] : this.valor(p.defecto, amb)));
@@ -489,6 +534,7 @@ class Programa {
       }
       case "field_expression": {
         const [obj, campo] = hijos(n), x = this.valor(obj, sc), c = campo.text;
+        if (x.T === "Struct") return this.prim.leeCampo(x, c);
         if (x.T === "NamedTuple") {
           const i = x.nombres.indexOf(c);
           if (i < 0) throw new ErrorJulia("FieldError: type NamedTuple has no field `" + c + "`, available fields: " + x.nombres.map(m => "`" + m + "`").join(", "));
@@ -500,7 +546,8 @@ class Programa {
       case "range_expression": return this.rango(n, sc);
       case "index_expression": {
         const [obj, ind] = hijos(n);
-        if (obj.type === "identifier" && obj.text in TIPOS && ind.type === "vector_expression") {
+        if (obj.type === "identifier" && (obj.text in TIPOS || this.prim.esTipoPropio(obj.text)) && ind.type === "vector_expression") {
+          if (this.prim.esTipoPropio(obj.text)) return this.prim.vectorTipado(obj.text, hijos(ind).map(c => this.valor(c, sc)));
           return this.prim.vectorTipado(TIPOS[obj.text].nombre, hijos(ind).map(c => this.valor(c, sc)));
         }
         const x = this.valor(obj, sc);
@@ -544,6 +591,12 @@ class Programa {
       const [obj, ind] = hijos(izq);
       const x = this.valor(obj, sc);
       this.prim.ponIndice(x, this.indices(x, ind, sc), v);
+      return;
+    }
+    if (izq.type === "field_expression") {      // f.faltas = 2: solo en un mutable struct
+      const [obj, campo] = hijos(izq), x = this.valor(obj, sc);
+      if (x.T !== "Struct") throw new NoSoportado("cambiar el campo de un " + V.tipo(x));
+      this.prim.ponCampo(x, campo.text, v);
       return;
     }
     if (izq.type === "tuple_expression" || izq.type === "open_tuple") {
@@ -684,13 +737,18 @@ class Programa {
   nombreTipo(c) {
     const NOMBRES = { Int: "Int64", Int64: "Int64", Float64: "Float64", String: "String", Char: "Char", Bool: "Bool", Any: "Any", Real: "Real", Integer: "Integer", AbstractString: "AbstractString", Number: "Number" };
     if (c.type === "identifier" && NOMBRES[c.text]) return NOMBRES[c.text];
+    if (c.type === "identifier" && this.prim.esTipoPropio(c.text)) return c.text;
     if (c.type === "parametrized_type_expression") { const [nom, ll] = hijos(c); if (nom.text === "Vector") return "Vector{" + hijos(ll).map(x => this.nombreTipo(x)).join(", ") + "}"; }
     throw new NoSoportado("el tipo " + c.text);
   }
   aplica(f, args, kw) {
     if (f.T === "Funcion") return f.anonima ? f.llama(args) : this.llamaPrograma(f, args, kw);
     if (f.T === "Primitiva") return f.f(args, kw);
-    if (f.T === "Tipo") return this.prim.construye(f.nombre, args, kw);
+    if (f.T === "Tipo") {
+      const def = this.prim.tipos.get(f.nombre);
+      if (def && def.fn && this.eligeMetodo(def.fn, args)) return this.llamaPrograma(def.fn, args, kw);
+      return this.prim.construye(f.nombre, args, kw);
+    }
     throw new ErrorJulia("MethodError: objects of type " + V.tipo(f) + " are not callable\nThe object of type `" + V.tipo(f) + "` exists, but no method is defined for this combination of argument types when trying to treat it as a callable object.");
   }
   // x -> x + 1: trazar.jl no recorre por dentro las funciones anónimas, y aquí tampoco
