@@ -39,6 +39,7 @@ project:
         - file: capitulos/13-probabilidad.md
         - file: capitulos/14-ecuaciones-optimizacion.md
         - file: capitulos/15-ecuaciones-diferenciales.md
+        - file: capitulos/16-datos-estadistica.md
 site:
   template: book-theme
   options:

@@ -12,7 +12,7 @@
 import * as V from "./valores.mjs";
 import { ErrorJulia, NoSoportado, I, F, B, S, Ch, NADA, FALTA } from "./valores.mjs";
 import { crearPrimitivas, TIPOS, CONOCIDAS } from "./primitivas.mjs";
-import { NOMBRES_BASE } from "./nombres-base.mjs";
+import { NOMBRES_BASE, NOMBRES_PAQUETES } from "./nombres-base.mjs";
 import * as MX from "./matrices.mjs";
 
 const LIMITE = 2000;
@@ -228,6 +228,7 @@ class Programa {
       throw new ErrorJulia(base + "Hint: a global variable of this name also exists in " + p + ".");
     }
     if (CONOCIDAS.has(nombre) || NOMBRES_BASE.has(nombre)) throw new NoSoportado("la función " + nombre + "()");
+    for (const [p, ns] of Object.entries(NOMBRES_PAQUETES)) if (ns.has(nombre)) throw new NoSoportado(nombre + ", de " + p);
     throw new ErrorJulia("UndefVarError: `" + nombre + "` not defined in `Main`\nSuggestion: check for spelling errors or missing imports.");
   }
   asigna(nombre, v, sc) {

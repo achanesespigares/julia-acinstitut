@@ -55,7 +55,8 @@ mutable struct Estado
     ocultar::Vector{String}
     salida::String                 # el archivo donde va lo que el programa escribe
     firmas::Dict{Symbol,Vector{String}}
-    ids::Dict{UInt,Int}            # un número por cada vector distinto: dos nombres con el mismo número son el mismo vector
+    ids::IdDict{Any,Int}           # un número por cada vector distinto: dos nombres con el mismo número son el mismo vector
+                                   # (con el objeto como clave, y no su objectid: así no se libera, y su dirección no la reutiliza otro)
     grafico::Any                   # el gráfico que el programa acaba de mostrar (va en el paso siguiente)
     svg::Union{Nothing,String}     # en el libro, dónde se guarda como SVG cada gráfico que se muestra
     nsvg::Int
@@ -76,7 +77,7 @@ un_valor(x) = sin_main(de_modulo(show, x))
 nombre_tipo(x) = sin_main(de_modulo(show, typeof(x)))
 es_escalar(x) = x isa Union{Number,AbstractString,AbstractChar,Symbol,Nothing,Missing}
 
-un_id(x) = (ids = T[].ids; get!(ids, objectid(x), length(ids) + 1))
+un_id(x) = (ids = T[].ids; get!(ids, x, length(ids) + 1))
 
 function firma(n::Symbol)
     fs = get(T[].firmas, n, String[])
@@ -235,11 +236,19 @@ function foto()
     est, orden
 end
 
+# Las variables de cada marco se describen en su orden (el de los argumentos y luego el de lectura), no en
+# el de m[:vars], que es un diccionario: así los ids de los vectores nuevos salen siempre en el mismo orden.
 function foto_marcos()
-    [Dict("id" => m[:id], "nombre" => string(m[:nombre]), "llamada" => m[:llamada], "desde" => m[:desde],
-          "vars" => Dict(string(k) => describe(v) for (k, v) in m[:vars] if !oculto(k)),
-          "orden" => [string(k) for k in m[:orden] if haskey(m[:vars], k) && !oculto(k)])
-     for m in T[].pila]
+    map(T[].pila) do m
+        ks = [k for k in m[:orden] if haskey(m[:vars], k) && !oculto(k)]
+        todas = vcat(ks, [k for k in keys(m[:vars]) if !(k in ks) && !oculto(k)])
+        vars = Dict{String,Any}()
+        for k in todas
+            vars[string(k)] = describe(m[:vars][k])
+        end
+        Dict("id" => m[:id], "nombre" => string(m[:nombre]), "llamada" => m[:llamada], "desde" => m[:desde],
+             "vars" => vars, "orden" => [string(k) for k in ks])
+    end
 end
 
 function lee_pantalla()
@@ -525,7 +534,7 @@ function traza(codigo::AbstractString, config::AbstractDict; svg = nothing)
     touch(salida)
     st = Estado(Module(:Main), Any[], Any[], Symbol[], Any[], 0, Dict{Int,Int}(), 0, Dict{Symbol,Any}(),
                 String.(get(config, "columnas", String[])), get(config, "fila_en", "") == "cada_linea",
-                String.(get(config, "ocultar", String[])), salida, Dict{Symbol,Vector{String}}(), Dict{UInt,Int}(),
+                String.(get(config, "ocultar", String[])), salida, Dict{Symbol,Vector{String}}(), IdDict{Any,Int}(),
                 nothing, svg, 0, nothing)
     T[] = st
     occursin(r"\busing\s+.*\bPlots\b", codigo) && carga_plots()

@@ -384,6 +384,7 @@ const EJEMPLOS = [
   { nombre: "Dados al azar", codigo: "using Plots, Random\nRandom.seed!(7)\nd1 = rand(1:6, 1000)\nd2 = rand(1:6, 1000)\nsuma = d1 .+ d2\nsietes = count(==(7), suma)\nhistogram(suma, bins = 1.5:1:12.5, label = \"suma de dos dados\")" },
   { nombre: "Una ecuación", codigo: "function biseccion(f, a, b; tol = 0.001)\n    while b - a > tol\n        m = (a + b) / 2\n        if f(a) * f(m) <= 0\n            b = m\n        else\n            a = m\n        end\n    end\n    return (a + b) / 2\nend\n\ng(x) = x^3 - x - 2\nr = biseccion(g, 1, 2)" },
   { nombre: "El café que se enfría", codigo: "k = 0.1\nT = 90.0\nt = 0.0\nh = 2.0\nwhile t < 20\n    T = T + h * (-k * (T - 20))\n    t += h\nend\nT", tabla: "t, T" },
+  { nombre: "Medidas con ruido", codigo: "using Statistics, Random\nRandom.seed!(3)\nmedidas = 20.0 .+ 0.5 .* randn(8)\nmedia = mean(medidas)\ndesviacion = std(medidas)\nmargen = desviacion / sqrt(8)" },
   { nombre: "Un bucle que suma", codigo: "notas = [9.0, 6.5, 4.0, 7.5]\ntotal = 0.0\nfor i in eachindex(notas)\n    if notas[i] >= 5\n        total += notas[i]\n    end\nend\ntotal", tabla: "i, notas[i], total" },
   { nombre: "Una función", codigo: "function media(v)\n    s = 0.0\n    for x in v\n        s += x\n    end\n    return s / length(v)\nend\n\nm = media([2, 4, 9])\nprintln(\"La media es \", m)" },
   { nombre: "b = a no copia", codigo: "a = [1, 2, 3]\nb = a\nb[1] = 100\na\nc = copy(a)\nc[1] = 0\na" },
@@ -620,7 +621,7 @@ function dibujaTraza(el, C, D) {
       const us = lt.match(/^using\s+(.+)$/);
       if (us) {
         const ps = us[1].split(",").map(x => x.trim()), que = { DataFrames: "DataFrame, groupby, combine, nrow…", Statistics: "mean, median…", LinearAlgebra: "det, dot, norm, la identidad I…", Plots: "plot, scatter, plot!, bar, histogram…", Random: "Random.seed!, shuffle, randperm…" };
-        return (ps.length > 1 ? "Se cargan los paquetes " + ps.map(code).join(" y ") : "Se carga el paquete " + code(ps[0])) + ". Desde esta línea existen sus funciones (" + ps.map(x => que[x] || "").filter(Boolean).join("; ") + "), que Julia no trae de serie.";
+        return (ps.length > 1 ? "Se cargan los paquetes " + ps.slice(0, -1).map(code).join(", ") + " y " + code(ps[ps.length - 1]) : "Se carga el paquete " + code(ps[0])) + ". Desde esta línea existen sus funciones (" + ps.map(x => que[x] || "").filter(Boolean).join("; ") + "), que Julia no trae de serie.";
       }
       if (/^break\b/.test(lt)) return "Se ejecuta <code>break</code>: Julia sale del bucle en este mismo momento, sin terminar la vuelta.";
       if (/^continue\b/.test(lt)) return "Se ejecuta <code>continue</code>: Julia deja esta vuelta a medias y salta a la siguiente."; }
