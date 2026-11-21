@@ -60,6 +60,7 @@ export function crearPrimitivas(prog) {
   const P = {};
   // ── Aritmética ───────────────────────────────────────────────────────
   P.unaria = (op, x) => {
+    { const r = prog.operaUsuario && prog.operaUsuario(op, [x]); if (r) return r; }
     if (x.T === "Missing" && op !== "!") return FALTA;
     if (op === "-" || op === "+") {
       if (op === "+" && x.T !== "Bool" && NUM(x)) return x;
@@ -76,6 +77,7 @@ export function crearPrimitivas(prog) {
     throw new NoSoportado("el operador " + op);
   };
   P.binaria = (op, a, b) => {
+    { const r = prog.operaUsuario && prog.operaUsuario(op, [a, b]); if (r) return r; }
     if (op === "≠") op = "!=";
     if (op === "≤") op = "<=";
     if (op === "≥") op = ">=";

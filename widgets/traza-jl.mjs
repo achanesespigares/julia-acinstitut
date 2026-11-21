@@ -181,6 +181,7 @@ pre.tz-codigo{ margin:0; font:400 14px/1.85 var(--mono); overflow-x:auto; backgr
 .tz-aviso b{ font-family:var(--titulo); }
 .tz-aviso .origen, .tz-error .origen{ font-family:var(--mono, ui-monospace, monospace); font-size:12.5px; opacity:.8; }
 .tz-error{ border:2px solid var(--acento); background:var(--suave); border-radius:8px; padding:8px 12px; font-size:14px; }
+.tz-error .txt{ white-space:pre-line; overflow-wrap:anywhere; }
 .tz-consola{ background:var(--tinta); color:#EDEDED; font:400 14px/1.6 var(--mono); padding:10px 12px; min-height:2.6em; white-space:pre; overflow-x:auto; margin:0; }   /* como la consola: las columnas no se parten */
 .tz-tabla{ border-collapse:collapse; font:500 14px/1.2 var(--mono); width:100%; }
 .tz-tabla th{ font:600 10.5px/1.2 var(--titulo); letter-spacing:.06em; text-align:left; color:var(--banda); padding:6px 10px; border-bottom:1.5px solid var(--tinta); }
@@ -386,6 +387,7 @@ const EJEMPLOS = [
   { nombre: "El café que se enfría", codigo: "k = 0.1\nT = 90.0\nt = 0.0\nh = 2.0\nwhile t < 20\n    T = T + h * (-k * (T - 20))\n    t += h\nend\nT", tabla: "t, T" },
   { nombre: "Medidas con ruido", codigo: "using Statistics, Random\nRandom.seed!(3)\nmedidas = 20.0 .+ 0.5 .* randn(8)\nmedia = mean(medidas)\ndesviacion = std(medidas)\nmargen = desviacion / sqrt(8)" },
   { nombre: "Tipos con parámetros", codigo: "struct Punto{T<:Real}\n    x::T\n    y::T\nend\nque_es(p::Punto{Int64}) = \"un punto de enteros\"\nque_es(p::Punto) = \"un punto de otro tipo\"\np = Punto(3, 4)\nq = Punto(1.5, 2.0)\nque_es(p)\nque_es(q)\ntypeof(q)" },
+  { nombre: "Piedra, papel o tijera", codigo: "abstract type Jugada end\nstruct Piedra <: Jugada end\nstruct Papel <: Jugada end\nstruct Tijera <: Jugada end\ngana(a::Jugada, b::Jugada) = false\ngana(a::Piedra, b::Tijera) = true\ngana(a::Tijera, b::Papel) = true\ngana(a::Papel, b::Piedra) = true\ngana(Piedra(), Tijera())\ngana(Tijera(), Piedra())\ngana(Papel(), Papel())" },
   { nombre: "Un bucle que suma", codigo: "notas = [9.0, 6.5, 4.0, 7.5]\ntotal = 0.0\nfor i in eachindex(notas)\n    if notas[i] >= 5\n        total += notas[i]\n    end\nend\ntotal", tabla: "i, notas[i], total" },
   { nombre: "Una función", codigo: "function media(v)\n    s = 0.0\n    for x in v\n        s += x\n    end\n    return s / length(v)\nend\n\nm = media([2, 4, 9])\nprintln(\"La media es \", m)" },
   { nombre: "b = a no copia", codigo: "a = [1, 2, 3]\nb = a\nb[1] = 100\na\nc = copy(a)\nc[1] = 0\na" },
@@ -596,12 +598,35 @@ function dibujaTraza(el, C, D) {
     const sig = ((L[p.linea - 1] || "").match(new RegExp("^\\s*(?:function\\s+)?(" + m.nombre.replace(/[!.]/g, "\\$&") + "\\(.*?\\))")) || [])[1];
     if (!sig) return "";
     const ts = args.map(a => m.vars[a] && m.vars[a].t).filter(Boolean);
-    return " Como " + code(m.nombre) + " tiene " + f.m + " métodos, Julia elige el más específico que encaja con " + (ts.length === 1 ? "un " + code(ts[0]) : "estos tipos (" + ts.map(code).join(", ") + ")") + ": " + code(sig) + ", el de la línea " + p.linea + ".";
+    // la primera vez que se elige mirando varios argumentos, se dice que eso es el despacho múltiple
+    const varios = x => { const mm = x.marcos && x.marcos[x.marcos.length - 1], ff = mm && (x.estado || {})[mm.nombre]; return x.tipo === "llamada" && ff && ff.m > 1 && mm.orden.filter(a => mm.vars[a]).length > 1; };
+    const primera = ts.length > 1 && !P.slice(0, P.indexOf(p)).some(varios);
+    return " Como " + code(m.nombre) + " tiene " + f.m + " métodos, Julia elige el más específico que encaja con " + (ts.length ? unosTipos(ts) : "estos argumentos") + ": " + code(sig) + ", el de la línea " + p.linea + "." +
+      (primera ? " Mira los tipos de todos los argumentos a la vez: eso es el <b>despacho múltiple</b>." : "");
   }
+  // «un Int64 y un Float64»; con tipos propios, «los tipos Piedra y Tijera»
+  const DE_JULIA = /^(Int64|Float64|String|Char|Bool|Rational\{Int64\}|Vector\{.*\}|Matrix\{.*\}|Tuple\{.*\}|Dict\{.*\})$/;
+  const unosTipos = ts => {
+    const y = xs => xs.length > 1 ? xs.slice(0, -1).join(", ") + " y " + xs[xs.length - 1] : xs[0];
+    if (ts.length === 1 || ts.every(t => DE_JULIA.test(t))) return y(ts.map(t => "un " + code(t)));
+    return "los tipos " + y(ts.map(code));
+  };
+  // Base.:+(a::Punto, b::Punto) = …: un método para un operador de Julia
+  const RE_BASE = /^\s*(?:function\s+)?Base\.:(\([^()]+\)|[^\s(]+)(\(.*?\))/;
+  const opBase = t => t.replace(/^Base\.:/, "").replace(/^\((.*)\)$/, "$1");
   function narra(p, prev) {
     if (p.tipo === "inicio") return "El programa está listo. Pulsa «Paso ▶» para ejecutar la primera línea.";
-    if (p.tipo === "error") return "Julia se detiene en la línea " + p.linea + " con un error" + (p.marcos && p.marcos.length ? ", dentro de " + code(p.marcos[p.marcos.length - 1].llamada) : "") + ". Lo que viene detrás ya no se ejecuta.";
+    if (p.tipo === "error") return "Julia se detiene en la línea " + p.linea + " con un error" + (p.marcos && p.marcos.length ? ", dentro de " + code(p.marcos[p.marcos.length - 1].llamada) : "") + ". Lo que viene detrás ya no se ejecuta." +
+      (/ is ambiguous\./.test(p.error || "") ? " Hay varios métodos que encajan y ninguno es más específico que los demás, así que Julia no elige: es una <b>ambigüedad</b>. El mensaje dice qué método habría que añadir para resolverla." : "");
     if (p.tipo === "vuelta") {
+      // for a in xs, b in ys: un bucle dentro de otro, en una línea; cada vuelta es una pareja
+      const dos = (L[p.linea - 1] || "").match(/^\s*for\s+(\w+)\s+in\s+(.+?)\s*,\s*(\w+)\s+in\s+(.+?)\s*$/);
+      if (dos) {
+        const mf = p.marcos && p.marcos.length ? p.marcos[p.marcos.length - 1].vars : null, vale = n => (mf && mf[n]) || p.estado[n];
+        const partes = [dos[1], dos[3]].filter(vale).map(n => code(n) + " vale " + esc(muestra(vale(n))));
+        return "Vuelta " + p.vuelta + " del <code>for</code>: la pareja número " + p.vuelta + (partes.length ? ", en la que " + partes.join(" y ") : "") + "." +
+          (p.vuelta === 1 ? " Por cada elemento de " + code(dos[2]) + ", " + code(dos[3]) + " recorre todo " + code(dos[4]) + ": es un bucle dentro de otro. " + code(dos[1]) + " y " + code(dos[3]) + " son variables <b>locales</b> del bucle." : "");
+      }
       const [, v, sec] = varDelFor(p.linea);
       const mf = p.marcos && p.marcos.length ? p.marcos[p.marcos.length - 1].vars : null;
       const val = v && ((mf && mf[v.trim()]) || p.estado[v.trim()]);
@@ -635,6 +660,15 @@ function dibujaTraza(el, C, D) {
       }
       if (/^break\b/.test(lt)) return "Se ejecuta <code>break</code>: Julia sale del bucle en este mismo momento, sin terminar la vuelta.";
       if (/^continue\b/.test(lt)) return "Se ejecuta <code>continue</code>: Julia deja esta vuelta a medias y salta a la siguiente."; }
+    if (p.tipo === "llamada" && /^Base\.:/.test(p.marcos[p.marcos.length - 1].nombre)) {      // a + b con un método tuyo
+      const m = p.marcos[p.marcos.length - 1], args = m.orden.filter(a => m.vars[a]), op = opBase(m.nombre);
+      const def = (L[p.linea - 1] || "").match(RE_BASE), ts = args.map(a => m.vars[a].t);
+      return "Para calcular " + code(op) + " con " + unosTipos(ts) + ", Julia busca entre los métodos de " + code(op) + " y encuentra el que has añadido tú" +
+        (def ? ": " + code(op + def[2]) + ", el de la línea " + p.linea : "") + ". Le da un espacio propio en la memoria, con sus argumentos: " +
+        args.map(a => code(a) + " vale " + esc(muestra(m.vars[a]))).join(", ") + ". El programa salta al método" + (m.desde && m.desde !== p.linea ? " y la línea " + m.desde + " se queda esperando el resultado." : ".");
+    }
+    if (p.tipo === "devuelve" && /^Base\.:/.test(p.funcion))
+      return "Tu método de " + code(opBase(p.funcion)) + " termina y devuelve " + code(p.valor) + ". Su espacio en la memoria desaparece, y el programa vuelve a la línea " + p.desde + ", que usa ese resultado.";
     if (p.tipo === "llamada") {
       const m = p.marcos[p.marcos.length - 1], args = m.orden.filter(a => m.vars[a]);
       return "Se llama a " + code(m.llamada) + ". Julia le da a la función un espacio propio en la memoria" +
@@ -705,9 +739,10 @@ function dibujaTraza(el, C, D) {
         const pm = lt.match(/(?:struct|type)\s+\w+\{([^}]*)\}/);       // struct Punto{T<:Real}: sus parámetros
         const padre = (lt.replace(/\{[^}]*\}/, "").match(/<:\s*(\w+)/) || [])[1];
         const params = pm ? pm[1].split(",").map(x => x.trim()).map(x => { const m = x.match(/^(\w+)\s*<:\s*(\w+)$/); return m ? code(m[1]) + ", que puede ser cualquier subtipo de " + code(m[2]) : code(x) + ", que puede ser cualquier tipo"; }) : [];
-        const campos = [];
-        if (!abstracto) for (let k = p.linea; k < L.length && !/^\s*end\b/.test(L[k]); k++) { const c = (L[k].match(/^\s*(\w+)/) || [])[1]; if (c) campos.push(c); }
+        const campos = [], unaLinea = /\bend\s*$/.test(lt);       // struct Piedra <: Jugada end: sin campos
+        if (!abstracto && !unaLinea) for (let k = p.linea; k < L.length && !/^\s*end\b/.test(L[k]); k++) { const c = (L[k].match(/^\s*(\w+)/) || [])[1]; if (c) campos.push(c); }
         frases.push(abstracto ? "Se define " + code(n) + ", un tipo <b>abstracto</b>: no tiene campos ni se pueden crear valores suyos. Sirve para agrupar otros tipos, que dirán que son de este con " + code("<: " + n) + "."
+          : !campos.length ? "Se define el tipo " + code(n) + ", <b>sin campos</b>: sus valores no guardan nada, y lo único que importa de ellos es de qué tipo son." + (padre ? " Es un subtipo de " + code(padre) + "." : "") + " Un valor se crea con " + code(n + "()") + "."
           : "Se define el tipo " + code(n) + (/mutable/.test(lt) ? ", <b>mutable</b>," : "") + (params.length ? ", con " + (params.length === 1 ? "un parámetro, " : params.length + " parámetros: ") + params.join("; ") + "," : "") + " con " + campos.length + (campos.length === 1 ? " campo" : " campos") + ": " + campos.map(code).join(", ") + "." + (padre ? " Es un subtipo de " + code(padre) + "." : "") +
             " Es solo el molde: todavía no hay ningún valor de este tipo. Se crean llamando a " + code(n + "(…)") + ", con un valor para cada campo.");
         continue;
@@ -871,6 +906,11 @@ function dibujaTraza(el, C, D) {
       else if (/^[\w.]+$/.test(lt)) frases.push("Escribir solo " + code(lt) + " hace que Julia muestre su valor, y mostrar un gráfico es <b>dibujarlo</b>, con " + sus + "." + donde);
       else frases.push("Julia dibuja el gráfico." + donde);
     }
+    if (!frases.length && RE_BASE.test(L[p.linea - 1] || "")) {
+      const [, o, args] = (L[p.linea - 1] || "").match(RE_BASE), op = o.replace(/^\((.*)\)$/, "$1");
+      return "Se añade a " + code(op) + " un método nuevo, " + code(op + args) + ". " + code(op) + " no es una función del programa: es de Julia, del módulo " + code("Base") +
+        " (por eso se escribe " + code("Base.:" + o) + "), y ya tenía más de cien métodos, para los números y para muchos otros tipos. Ahora tiene uno más, para los tuyos. Como no se crea ningún nombre nuevo, la memoria del programa no cambia.";
+    }
     if (!frases.length) {
       const lt = (L[p.linea - 1] || "").trim();
       if (prev && prev.tipo === "condicion" && prev.linea === p.linea && / \? /.test(lt))
@@ -887,7 +927,8 @@ function dibujaTraza(el, C, D) {
 
   function casillas(v, previo, opciones = {}) {
     const cambia = i => previo && previo.v && previo.v.length === v.v.length && previo.v[i] !== v.v[i];
-    if (!opciones.grande && v.v.some(x => String(x).length > 24))
+    // valores largos, o de un tipo propio (Punto{Int64}(1, 2)): uno debajo de otro
+    if (!opciones.grande && (v.v.some(x => String(x).length > 24) || (v.v.length > 1 && v.v.every(x => /^\w+(\{.*\})?\(.+\)$/.test(String(x))) && v.v.join("").length > 36)))
       return '<div class="fila-vert">' + v.v.map((x, i) => '<div class="cas-v' + (cambia(i) ? " cambia" : "") + '"><span class="idx">[' + (i + 1) + ']</span><span class="v">' + esc(x) + "</span></div>").join("") + "</div>";
     const bool = v.el === "Bool" && v.v.every(x => x === "true" || x === "false");
     return '<div class="fila-cas' + (bool ? " bool" : "") + (opciones.grande ? " grande" + (v.v.some(x => String(x).length > 4) ? " largo" : "") : "") + '">' + v.v.map((x, i) =>
@@ -1032,7 +1073,7 @@ function dibujaTraza(el, C, D) {
         (Object.keys(m.vars).length ? variables(m.vars, m.orden, antes[m.id], false, { vars: p.estado, donde: "(del programa principal)" }) : '<p class="tz-vacio">Sin variables.</p>') +
         (activo && p.tipo === "devuelve" ? '<span class="devuelve">devuelve ' + esc(p.valor) + "</span>" : "") + "</div>";
     });
-    if (p.tipo === "error") html += '<div class="tz-error"><b>Error de Julia</b><br>' + esc(p.error) + "</div>";
+    if (p.tipo === "error") html += '<div class="tz-error"><b>Error de Julia</b><br><span class="txt">' + esc(p.error) + "</span></div>";
     return html;
   }
 

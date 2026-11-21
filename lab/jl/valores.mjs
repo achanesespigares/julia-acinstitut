@@ -201,7 +201,7 @@ export function repr(x, dentro = false) {
     case "FloatRange": return decimalesRango(x);
     case "Vector": case "BitVector": {
       const bools = x.T === "BitVector" || x.el === "Bool";
-      const pref = bools ? "Bool" : ["Any", "SubString{String}", "AbstractString", "Real", "Number", "Integer", "Signed", "AbstractFloat"].includes(x.el) || !x.a.length ? x.el : "";
+      const pref = bools ? "Bool" : !implicito(x.el) || !x.a.length ? x.el : "";
       const fr = x.el === "Rational{Int64}";
       return pref + "[" + x.a.map(e => bools ? (e.v ? "1" : "0") : fr && e.T === "Rational" ? racTI(e) : repr(e, true)).join(", ") + "]";
     }
@@ -229,7 +229,8 @@ export function repr(x, dentro = false) {
 
 // los tipos que Julia puede leer de vuelta sin escribirlos (typeinfo_implicit, en base/arrayshow.jl)
 function implicito(t) {
-  if (["Float64", "Int64", "Char", "String", "Nothing"].includes(t)) return true;
+  if (["Float64", "Int64", "Char", "String", "Nothing", "Symbol"].includes(t)) return true;
+  if (GANCHOS.esSingleton && GANCHOS.esSingleton(t)) return true;      // struct Piedra end: issingletontype
   const m = /^(Vector|Tuple|Pair|Dict)\{(.*)\}$/.exec(t);
   if (!m) return false;
   return partesTipo(m[2]).every(implicito);
@@ -354,7 +355,7 @@ const nombreTipo = t => t === "Rational" ? "Rational{Int64}" : t;
 // convierte un valor al tipo de las casillas de un vector (convert(T, x))
 export function convierte(x, el) {
   if (el === "Any") return x;
-  if (x.T === "Struct" && GANCHOS.esSubtipo && GANCHOS.esSubtipo(x.tipo, el)) return x;
+  if (x.T === "Struct" && (tipo(x) === el || (GANCHOS.esSubtipo && GANCHOS.esSubtipo(tipo(x), el)))) return x;
   const t = ["String", "Pair", "Tuple", "NamedTuple", "Dict"].includes(x.T) ? tipo(x) : nombreTipo(x.T);
   if (t === el) return x;
   if (x.T === "String" && el === "String") return { T: "String", v: x.v };

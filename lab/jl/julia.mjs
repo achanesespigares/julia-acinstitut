@@ -83,7 +83,7 @@ class Programa {
     this.locales = new Map();
     this.columnas = config.columnas || []; this.porLinea = config.fila_en === "cada_linea";
     this.ocultar = new Set(config.ocultar || []);
-    this.salida = ""; this.firmas = new Map(); this.ids = new Map();
+    this.salida = ""; this.firmas = new Map(); this.ids = new Map(); this.ext = new Map();
     this.prim = crearPrimitivas(this);
   }
 
@@ -451,16 +451,123 @@ class Programa {
     this.prim.defineTipo(def);
     return def.nombre;
   }
-  // el método de f que toca con estos argumentos: el más específico de los que encajan (despacho múltiple)
+  // ── Despacho múltiple ──────────────────────────────────────────────────
+  // ¿Es el tipo a (de una anotación) un subtipo de b? Solo con los tipos que el laboratorio conoce; si no,
+  // NoSoportado: mejor no elegir que elegir mal
+  subTipo(a, b) {
+    if (a === b || b === "Any") return true;
+    if (a === "Any") return false;
+    const ARR = { Vector: "AbstractVector", AbstractVector: "AbstractArray", Matrix: "AbstractMatrix", AbstractMatrix: "AbstractArray", AbstractArray: "Any" };
+    const vec = t => { const m = /^Vector\{(<:)?(.+)\}$/.exec(t); return m ? { cov: !!m[1], el: m[2] } : t === "Vector" ? { cov: true, el: "Any" } : null; };
+    const va = vec(a), vb = vec(b);
+    if (va && vb) return vb.cov ? this.subTipo(va.el, vb.el) : !va.cov && va.el === vb.el;
+    if (va) return b === "AbstractVector" || b === "AbstractArray";
+    if (a in ARR) { for (let x = a; x && x !== "Any"; x = ARR[x]) if (x === b) return true; if (vb || b in ARR || this.prim.conocido(b)) return false; }
+    else if (vb || b in ARR) { if (this.prim.conocido(a)) return false; }
+    else if (this.prim.conocido(a) && this.prim.conocido(b)) return this.prim.esSubtipo(a, b);
+    throw new NoSoportado("comparar los tipos " + a + " y " + b + " al elegir método");
+  }
+  // si el método encaja con estos argumentos, lo que valen sus parámetros de where (un Map, vacío si no tiene)
+  encaja(m, args) {
+    const n = args.length, obl = m.params.filter(p => !p.defecto).length;
+    if (n < obl || n > m.params.length) return null;
+    const vars = m.vars || [], vals = new Map();
+    for (let i = 0; i < n; i++) {
+      const t = m.params[i].tipo;
+      if (!t) continue;
+      const q = vars.find(v => v.nombre === t), w = /^Vector\{(\w+)\}$/.exec(t), qv = w && vars.find(v => v.nombre === w[1]);
+      if (!q && !qv) { if (!this.prim.esDelTipo(args[i], t)) return null; continue; }
+      let ti;
+      if (q) ti = V.tipo(args[i]);
+      else { if (args[i].T !== "Vector") return null; ti = V.eltipo(args[i]); }
+      const v = q || qv;
+      if (vals.has(v.nombre) && vals.get(v.nombre) !== ti) return null;
+      if (v.cota !== "Any" && !this.subTipo(ti, v.cota)) return null;
+      vals.set(v.nombre, ti);
+    }
+    return vals;
+  }
+  // los tipos de los n primeros argumentos, con cada parámetro de where cambiado por su cota
+  firmaDe(m, n) {
+    const vars = m.vars || [];
+    return m.params.slice(0, n).map(p => {
+      const t = p.tipo || "Any", q = vars.find(v => v.nombre === t);
+      if (q) return q.cota;
+      const w = /^Vector\{(\w+)\}$/.exec(t), qv = w && vars.find(v => v.nombre === w[1]);
+      return qv ? "Vector{<:" + qv.cota + "}" : t;
+    });
+  }
+  // las posiciones de cada parámetro de where que aparece solo, en dos o más argumentos (x::T, y::T)
+  diagonales(m, n) {
+    const r = [];
+    for (const v of m.vars || []) { const pos = m.params.slice(0, n).map((p, i) => p.tipo === v.nombre ? i : -1).filter(i => i >= 0); if (pos.length >= 2) r.push(pos); }
+    return r;
+  }
+  // ¿es a más específico que b? Para los tipos del laboratorio, como Base.morespecific de Julia 1.13 (comprobado
+  // con 20 000 parejas de firmas al azar, y con where en 28 000; los casos dudosos dan NoSoportado)
+  masEspecifico(a, b, n) {
+    const sa = this.firmaDe(a, n), sb = this.firmaDe(b, n);
+    const ab = sa.every((t, i) => this.subTipo(t, sb[i])), ba = sb.every((t, i) => this.subTipo(t, sa[i]));
+    const da = this.diagonales(a, n), db = this.diagonales(b, n);
+    const duda = () => new NoSoportado("decidir entre " + a.firma + " y " + b.firma);
+    if (ab && !ba) {
+      for (const pos of db) {
+        const ts = pos.map(i => { const t = a.params[i].tipo || "Any"; return (a.vars || []).some(v => v.nombre === t) ? "#" + t : t; });
+        if (ts.some(t => t !== ts[0])) throw duda();
+      }
+      return true;
+    }
+    if (ab && ba) {
+      if (da.length && !db.length) return true;
+      if (db.length && !da.length) return false;
+      if (da.length && db.length && JSON.stringify(da) !== JSON.stringify(db)) throw duda();
+    }
+    return false;
+  }
+  // el método de f que toca con estos argumentos: el más específico de los que encajan. Si ninguno es más
+  // específico que todos los demás, Julia no elige: es una ambigüedad. Devuelve { m, vals }, o null
   eligeMetodo(f, args) {
     const n = args.length;
-    const cands = f.metodos.filter(m => {
-      const obl = m.params.filter(p => !p.defecto).length;
-      return n >= obl && n <= m.params.length && m.params.every((p, i) => i >= n || !p.tipo || this.prim.esDelTipo(args[i], p.tipo));
-    });
-    let mejor = null, pm = -1;
-    for (const m of cands) { const k = m.params.reduce((s, p) => s + this.prim.profundidad(p.tipo), 0); if (k >= pm) { mejor = m; pm = k; } }
-    return mejor;
+    let cands = [];
+    for (const m of f.metodos) { const vals = this.encaja(m, args); if (vals) cands.push({ m, vals }); }
+    if (cands.length <= 1) return cands[0] || null;
+    // f(x, y = 1) y f(x) dan la misma firma con un argumento: vale la última definida, como en Julia
+    const clave = c => JSON.stringify([this.firmaDe(c.m, n), c.m.vars || []]);
+    cands = cands.filter((c, i) => !cands.slice(i + 1).some(o => clave(o) === clave(c)));
+    const min = cands.filter(c => !cands.some(o => o !== c && this.masEspecifico(o.m, c.m, n)));
+    if (min.length === 1) return min[0];
+    throw this.ambiguo(f, args, min.map(c => c.m));
+  }
+  // el MethodError de Julia 1.13 para una ambigüedad: los candidatos, del último definido al primero, y el
+  // método que la resolvería (el tipo más bajo de cada argumento)
+  ambiguo(f, args, ms) {
+    if (ms.some(m => (m.vars || []).length || !m.deJulia)) throw new NoSoportado("explicar una ambigüedad entre métodos con where o con argumentos opcionales");
+    const n = args.length, nom = f.op || f.nombre;
+    const orden = [...ms].sort((x, y) => f.metodos.indexOf(y) - f.metodos.indexOf(x));
+    const arreglo = [];
+    for (let i = 0; i < n; i++) {
+      const ts = ms.map(m => this.firmaDe(m, n)[i]);
+      const bajo = ts.find(t => ts.every(u => this.subTipo(t, u)));
+      if (!bajo) throw new NoSoportado("explicar esta ambigüedad");
+      arreglo.push("::" + bajo);
+    }
+    return new ErrorJulia("MethodError: " + nom + "(" + args.map(a => "::" + V.tipo(a)).join(", ") + ") is ambiguous.\n\nCandidates:\n" +
+      orden.map(m => "  " + m.deJulia).join("\n") + "\n\nPossible fix, define\n  " + nom + "(" + arreglo.join(", ") + ")");
+  }
+  // un método nuevo; si ya había uno con la misma firma, el nuevo lo sustituye (y pasa a ser el último)
+  agregaMetodo(f, met) {
+    const clave = m => JSON.stringify([m.params.map(p => [p.tipo || "Any", !!p.defecto]), m.vars || []]);
+    const k = f.metodos.findIndex(m => clave(m) === clave(met));
+    if (k >= 0) f.metodos.splice(k, 1);
+    f.metodos.push(met);
+  }
+  // a + b con un tipo propio: los métodos que el programa ha añadido a + (Base.:+(a::Punto, b::Punto) = …)
+  operaUsuario(op, args) {
+    const f = this.ext.get(op), propio = args.some(a => a && a.T === "Struct");
+    const e = f ? this.eligeMetodo(f, args) : null;
+    if (e) return this.llamaPrograma(f, args, new Map(), e);
+    if (propio && ["+", "-", "*", "/", "÷", "^", "%", "//"].includes(op)) throw V.errorMetodo(op, args);
+    return null;
   }
 
   // ── Funciones del programa ─────────────────────────────────────────────
@@ -473,8 +580,39 @@ class Programa {
       llamada = hijos(sig)[0];
       cuerpo = hijos(n).filter(c => c.type !== "signature");
     } else { llamada = hijos(n)[0]; cuerpo = [hijos(n)[1]]; }
+    // f(x::T, y::T) where {T<:Real}: los parámetros de where, cada uno con su cota
+    let vars = null, donde = "";
+    if (llamada.type === "where_expression") {
+      const [c, w] = hijos(llamada);
+      if (!w || c.type !== "call_expression") throw new NoSoportado("esta forma de where");
+      const lista = w.type === "curly_expression" ? hijos(w) : [w];
+      vars = lista.map(q => {
+        if (q.type === "identifier") return { nombre: q.text, cota: "Any" };
+        if (q.type === "binary_expression" && opDe(q) === "<:") { const [x, t] = hijos(q); if (x.type === "identifier") return { nombre: x.text, cota: this.nombreTipo(t) }; }
+        throw new NoSoportado("este parámetro de where (" + q.text + ")");
+      });
+      const uno = v => v.cota === "Any" ? v.nombre : v.nombre + " <: " + v.cota;
+      donde = " where " + (vars.length === 1 ? uno(vars[0]) : "{" + vars.map(uno).join(", ") + "}");
+      llamada = c;
+    }
     if (llamada.type !== "call_expression") throw new NoSoportado("esta forma de definir funciones");
-    const nombre = hijos(llamada)[0].text;
+    // Base.:+(a::Punto, b::Punto) = …: un método nuevo para un operador de Julia
+    const cal = hijos(llamada)[0];
+    let nombre = cal.text, op = null;
+    if (cal.type === "field_expression") {
+      const [mod, q] = hijos(cal);
+      let o = q && q.type === "quote_expression" ? q.namedChild(0) : null;
+      if (o && o.type === "parenthesized_expression" && o.namedChildCount === 1) o = o.namedChild(0);      // Base.:(==)
+      if (mod.text !== "Base" || !o || o.type !== "operator") throw new NoSoportado("añadir métodos a " + cal.text);
+      op = o.text; nombre = "Base." + q.text;
+    } else if (cal.type !== "identifier") throw new NoSoportado("esta forma de definir funciones");
+    const esVar = t => vars && vars.some(v => v.nombre === t);
+    const tipoDe = t => {
+      if (esVar(t.text)) return t.text;
+      if (t.type === "parametrized_type_expression" && /^Vector\{(\w+)\}$/.test(t.text) && esVar(t.text.slice(7, -1))) return t.text;
+      if (vars && vars.some(v => new RegExp("\\b" + v.nombre + "\\b").test(t.text))) throw new NoSoportado("el tipo " + t.text + " con un parámetro de where");
+      try { return this.nombreTipo(t); } catch (e) { if (e instanceof NoSoportado) return t.text; throw e; }
+    };
     const params = [], kw = [];
     let tras = false;
     const lista = llamada.namedChildren.find(c => c.type === "argument_list");
@@ -483,36 +621,56 @@ class Programa {
       if (c.type === ";") { tras = true; continue; }
       if (!c.isNamed) continue;
       if (c.type === "identifier") params.push({ nombre: c.text });
-      else if (c.type === "typed_expression") params.push({ nombre: hijos(c)[0].text, tipo: hijos(c)[1].text });
-      else if (c.type === "named_argument") { const [a, d] = hijos(c); (tras ? kw : params).push({ nombre: a.type === "typed_expression" ? hijos(a)[0].text : a.text, defecto: d, tipo: a.type === "typed_expression" ? hijos(a)[1].text : null }); }
+      else if (c.type === "typed_expression") params.push({ nombre: hijos(c)[0].text, tipo: tipoDe(hijos(c)[1]) });
+      else if (c.type === "unary_typed_expression") params.push({ nombre: null, tipo: tipoDe(hijos(c)[0]) });     // gana(::Piedra, ::Tijera)
+      else if (c.type === "named_argument") { const [a, d] = hijos(c); (tras ? kw : params).push({ nombre: a.type === "typed_expression" ? hijos(a)[0].text : a.text, defecto: d, tipo: a.type === "typed_expression" ? tipoDe(hijos(a)[1]) : null }); }
       else throw new NoSoportado("este tipo de argumento");
     }
+    if (vars) for (const v of vars) if (!params.some(p => p.tipo === v.nombre || p.tipo === "Vector{" + v.nombre + "}")) throw new NoSoportado("un parámetro de where que no está en los argumentos");
+    if (vars && vars.some(v => params.some(p => p.tipo === v.nombre) && params.some(p => p.tipo === "Vector{" + v.nombre + "}"))) throw new NoSoportado("el mismo parámetro de where solo y dentro de un Vector");
+    const firma = this.escribe(llamada) + donde;
+    // como escribe Julia el método (en un «is ambiguous»): sin ::Any, con los tipos por su nombre completo
+    const deJulia = !kw.length && !params.some(p => p.defecto) ? (op || nombre) + "(" + params.map(p => (p.nombre || "") + (p.tipo && p.tipo !== "Any" ? "::" + p.tipo : "")).join(", ") + ")" + donde : null;
+    const met = { params, kw, cuerpo, linea: l, firma, deJulia };
+    if (vars) met.vars = vars;
+    if (op) {
+      if (nivel > 0) throw new NoSoportado("añadir un método a " + op + " dentro de otro bloque");
+      const propio = t => t && this.prim.esTipoPropio((/^(\w+)/.exec(t) || [])[1]);
+      if (!params.some(p => propio(p.tipo))) throw new NoSoportado("añadir a " + op + " un método que no lleva ningún tipo tuyo");
+      let f = this.ext.get(op);
+      if (!f) { f = nuevaFuncion(nombre); f.op = op; this.ext.set(op, f); }
+      this.agregaMetodo(f, met);
+      this.va(l); this.paso(l, sc);
+      return NADA;
+    }
     if (!this.firmas.has(nombre)) this.firmas.set(nombre, []);
-    this.firmas.get(nombre).push(this.escribe(llamada));
+    this.firmas.get(nombre).push(firma);
     let f = (sc ? this.locs(sc).get(nombre) : null) || this.glob.get(nombre);
     if (f && f.T === "Tipo" && this.prim.esTipoPropio(f.nombre)) {      // Alumna(nombre) = …: un constructor más para el tipo
       const def = this.prim.tipos.get(f.nombre);
       if (!def.fn) def.fn = nuevaFuncion(nombre);
-      def.fn.metodos.push({ params, kw, cuerpo, linea: l });
+      this.agregaMetodo(def.fn, met);
       if (nivel === 0) { this.va(l); this.paso(l, sc); }
       return NADA;
     }
     if (!f || f.T !== "Funcion") f = nuevaFuncion(nombre);
-    f.metodos.push({ params, kw, cuerpo, linea: l });
+    this.agregaMetodo(f, met);
     if (nivel === 0) { this.va(l); this.asigna(nombre, f, sc); this.paso(l, sc); return NADA; }
     this.asigna(nombre, f, sc);
     return f;
   }
-  llamaPrograma(f, args, kwargs) {
+  llamaPrograma(f, args, kwargs, elegido) {
     const n = args.length;
-    const met = this.eligeMetodo(f, args);
-    if (!met) throw V.errorMetodo(f.nombre, args);
+    const e = elegido || this.eligeMetodo(f, args);
+    if (!e) throw V.errorMetodo(f.nombre, args);
+    const met = e.m;
     const amb = { vars: new Map(), padre: null, funcion: true, globales: new Set() };
-    met.params.forEach((p, i) => amb.vars.set(p.nombre, i < n ? args[i] : this.valor(p.defecto, amb)));
+    for (const [k, t] of e.vals || []) amb.vars.set(k, { T: "Tipo", nombre: t });      // los parámetros de where, que son locales
+    met.params.forEach((p, i) => { if (p.nombre) amb.vars.set(p.nombre, i < n ? args[i] : this.valor(p.defecto, amb)); });
     for (const p of met.kw) amb.vars.set(p.nombre, kwargs.has(p.nombre) ? kwargs.get(p.nombre) : this.valor(p.defecto, amb));
     for (const k of kwargs.keys()) if (!met.kw.some(p => p.nombre === k)) throw new ErrorJulia("MethodError: no method matching " + f.nombre + "(" + args.map(a => "::" + V.tipo(a)).join(", ") + "; " + k + "::" + V.tipo(kwargs.get(k)) + ")");
     // Julia pone primero los argumentos con nombre (así queda la función por dentro)
-    const nombres = met.kw.map(p => p.nombre).concat(met.params.map(p => p.nombre));
+    const nombres = met.kw.map(p => p.nombre).concat(met.params.map(p => p.nombre).filter(Boolean));
     this.entra(f, met, met.linea, amb, nombres);
     const cuerpo = met.cuerpo;
     try {
@@ -865,7 +1023,8 @@ class Programa {
     if (f.T === "Primitiva") return f.f(args, kw);
     if (f.T === "Tipo") {
       const def = this.prim.tipos.get(f.nombre);
-      if (def && def.fn && this.eligeMetodo(def.fn, args)) return this.llamaPrograma(def.fn, args, kw);
+      const e = def && def.fn ? this.eligeMetodo(def.fn, args) : null;
+      if (e) return this.llamaPrograma(def.fn, args, kw, e);
       return this.prim.construye(f.nombre, args, kw);
     }
     throw new ErrorJulia("MethodError: objects of type " + V.tipo(f) + " are not callable\nThe object of type `" + V.tipo(f) + "` exists, but no method is defined for this combination of argument types when trying to treat it as a callable object.");
@@ -990,7 +1149,7 @@ class Programa {
             const c = lista.child(i);
             if (c.type === ";") { tras = true; continue; }
             if (!c.isNamed) continue;
-            const t = c.type === "named_argument" ? ESC(hijos(c)[0]) + " = " + ESC(hijos(c)[1]) : c.type === "typed_expression" ? ESC(hijos(c)[0]) + "::" + ESC(hijos(c)[1]) : ESC(c);
+            const t = c.type === "named_argument" ? ESC(hijos(c)[0]) + " = " + ESC(hijos(c)[1]) : ESC(c);
             (tras ? kws : pos).push(t);
           }
           return ESC(fn) + (nodo.type === "broadcast_call_expression" ? "." : "") + "(" + pos.join(", ") + (kws.length ? "; " + kws.join(", ") : "") + ")";
@@ -1010,6 +1169,7 @@ class Programa {
         case "adjoint_expression": return ESC(hijos(nodo)[0], 16) + "'";
         case "tuple_expression": case "open_tuple": return "(" + hijos(nodo).map(c => ESC(c)).join(", ") + ")";
         case "typed_expression": return ESC(hijos(nodo)[0]) + "::" + ESC(hijos(nodo)[1]);
+        case "unary_typed_expression": return "::" + ESC(hijos(nodo)[0]);
         case "field_expression": return ESC(hijos(nodo)[0]) + "." + hijos(nodo)[1].text;
         case "named_field": return hijos(nodo)[0].text + " = " + ESC(hijos(nodo)[1]);
         case "parametrized_type_expression": { const [t, ll] = hijos(nodo); return ESC(t) + "{" + hijos(ll).map(c => ESC(c)).join(", ") + "}"; }
@@ -1049,7 +1209,7 @@ function nuevaFuncion(nombre) {
       const firmas = new Set();
       for (const m of this.metodos) {
         const obl = m.params.filter(p => !p.defecto).length;
-        for (let k = obl; k <= m.params.length; k++) firmas.add(m.params.slice(0, k).map(p => p.tipo || "Any").join(","));
+        for (let k = obl; k <= m.params.length; k++) firmas.add(m.params.slice(0, k).map(p => p.tipo || "Any").join(",") + JSON.stringify(m.vars || []));
       }
       return firmas.size;
     } };

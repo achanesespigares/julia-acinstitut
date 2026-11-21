@@ -35,6 +35,7 @@ export function tiposPropios(P, fn) {
   const une = ts => { const [p, ...resto] = ts; return ancestros(p).find(a => resto.every(t => P.esSubtipo(t, a))) || "Any"; };
   V.GANCHOS.esTipoPropio = P.esTipoPropio;
   V.GANCHOS.esSubtipo = P.esSubtipo;
+  V.GANCHOS.esSingleton = n => { const d = tipos.get(n); return !!d && !d.abstracto && !d.mutable && !d.params && !d.campos.length; };
   V.GANCHOS.uneTipos = ts => ts.every(t => tipos.has(t)) ? une(ts) : "Any";
   P.profundidad = t => {
     if (!t || t === "Any") return 0;

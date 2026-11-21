@@ -561,6 +561,9 @@ function traza(codigo::AbstractString, config::AbstractDict; svg = nothing)
                 error_txt = sin_main(replace(Base.invokelatest(sprint, showerror, err isa LoadError ? err.error : err; context = :module => st.modulo), "`Main.Main`" => "`Main`"))
                 # la lista de «Closest candidates» de un MethodError no cabe en el visualizador
                 error_txt = strip(first(split(error_txt, "\n\nClosest candidates")))
+                # en un «is ambiguous», cada candidato lleva debajo dónde se definió («@ Main programa.jl:2»):
+                # el visualizador ya enseña el programa, así que se quita
+                error_txt = replace(error_txt, r"\n    @ [^\n]*" => "")
                 # desde aquí, como en el REPL, hay que mirar la «edad del mundo» más reciente: las variables que
                 # el programa ha creado no existen para el código compilado antes de crearlas (Julia 1.12+)
                 est, orden = Base.invokelatest(foto)
