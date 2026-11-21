@@ -1,0 +1,12 @@
+Random.seed!(7)
+notas = 6 .+ 1.5 .* randn(200)
+println(count(>(7.5), notas))
+println(count(<(4.5), notas))
+z = randn(3)
+println(length(z))
+w = randn(2, 2)
+println(size(w))
+println(randn(Float64))
+using Random
+println(rand(Float64, 3))
+println(rand((1, 2, 3)))

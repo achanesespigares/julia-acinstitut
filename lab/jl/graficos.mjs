@@ -23,6 +23,8 @@ const ALIAS = {"c":"seriescolor","color":"seriescolor","colour":"seriescolor","s
   "markershape":"markershape","markershapes":"markershape","shape":"markershape","marker":"markershape","m":"markershape","markers":"markershape","mark":"markershape",
   "markersize":"markersize","markersizes":"markersize","ms":"markersize","msize":"markersize",
   "seriestype":"seriestype","seriestypes":"seriestype","st":"seriestype","t":"seriestype","typ":"seriestype","linetype":"seriestype","lt":"seriestype",
+  "fillcolor":"fillcolor","fillcolors":"fillcolor","fillcolour":"fillcolor","fc":"fillcolor","fcolor":"fillcolor","fcolour":"fillcolor",
+  "bins":"bins","bin":"bins","nb":"bins","nbin":"bins","nbins":"bins",
   "title":"title","titles":"title","xguide":"xguide","xguides":"xguide","x_guide":"xguide","xl":"xguide","xlab":"xguide","xlabel":"xguide",
   "yguide":"yguide","yguides":"yguide","y_guide":"yguide","yl":"yguide","ylab":"yguide","ylabel":"yguide",
   "xlims":"xlims","xlim":"xlims","xlimit":"xlims","xlimits":"xlims","x_lims":"xlims","xrange":"xlims","ylims":"ylims","ylim":"ylims","ylimit":"ylims","ylimits":"ylims","y_lims":"ylims","yrange":"ylims"};
@@ -215,11 +217,13 @@ const AMPLIAR = 1.06;
 function limites(sp, eje) {
   let amin = Infinity, amax = -Infinity;
   for (const s of sp.series) for (const v of s[eje]) if (Number.isFinite(v.n)) { amin = Math.min(v.n, amin); amax = Math.max(v.n, amax); }
+  const ex = sp.extremos && sp.extremos[eje];          // las barras ensanchan su eje (expand_extrema!)
+  if (ex) { amin = Math.min(ex[0], amin); amax = Math.max(ex[1], amax); }
   const lims = sp[eje + "lims"];
   if (lims) { if (Number.isFinite(lims[0])) amin = lims[0]; if (Number.isFinite(lims[1])) amax = lims[1]; }
   if (amax <= amin && Number.isFinite(amin)) amax = amin + 1.0;
   if (!Number.isFinite(amin) && !Number.isFinite(amax)) { amin = 0; amax = 1; }
-  if (!lims && sp.series.length) {
+  if (!lims && sp.series.length && !(sp.sinEnsanchar && sp.sinEnsanchar[eje])) {
     const mid = (amin + amax) / 2, span = (amax - amin) / 2;
     amin = mid + (-span) * AMPLIAR; amax = mid + span * AMPLIAR;
   }
@@ -235,7 +239,120 @@ export function describeGrafico(p) {
   if (sp.series.reduce((n, s) => n + s.x.length, 0) > 5000) throw new NoSoportado("un gráfico de más de 5000 puntos");
   return { sp: [{ titulo: sp.titulo, leyenda: sp.leyenda, x: describeEje(sp, "x"), y: describeEje(sp, "y"),
     series: sp.series.map(s => ({ tipo: s.tipo, etiqueta: s.etiqueta, color: s.color, ancho: V.repr(s.ancho), estilo: s.estilo, marca: s.marca, tam: V.repr(s.tam),
-      relleno: s.relleno, borde: s.borde, x: s.x.map(v => v.s), y: s.y.map(v => v.s) })) }] };
+      relleno: s.relleno, borde: s.borde, fondo: s.fondo, primaria: s.primaria !== false, x: s.x.map(v => v.s), y: s.y.map(v => v.s) })) }] };
+}
+
+
+// ── Barras e histogramas (las recetas :bar, :barbins y :barhist de Plots, y StatsBase.histrange) ──
+const bits64 = x => { const d = new DataView(new ArrayBuffer(8)); d.setFloat64(0, x); return d.getBigUint64(0); };
+const deBits = b => { const d = new DataView(new ArrayBuffer(8)); d.setBigUint64(0, b); return d.getFloat64(0); };
+const siguiente = x => x === 0 ? 5e-324 : x > 0 ? deBits(bits64(x) + 1n) : deBits(bits64(x) - 1n);
+const anterior = x => -siguiente(-x);
+function epsDe(x) {                         // eps(x) de Julia: la distancia al siguiente Float64
+  const a = Math.abs(x);
+  if (!Number.isFinite(a)) return NaN;
+  return siguiente(a) - a;
+}
+const exp10 = k => Number("1e" + k);        // exp10 de un entero: el decimal más cercano (comprobado en Julia)
+function log10Seguro(x) {
+  const l = Math.log10(x), k = Math.round(l);
+  if (Math.abs(l - k) < 1e-12) { if (x === exp10(k)) return k; throw new NoSoportado("un histograma con barras de ancho tan cerca de una potencia de 10"); }
+  return l;
+}
+// StatsBase.histrange(lo, hi, n, :left): bordes «redondos» (1, 2 o 5 por una potencia de 10)
+function histrange(lo, hi, n) {
+  let start, step, divisor, len;
+  if (hi === lo) { start = hi; step = Math.max(1, epsDe(start)); divisor = 1; len = 1; }
+  else {
+    let bw = (hi - lo) / n;
+    bw = Math.max(bw, epsDe(hi), epsDe(lo));
+    const lbw = log10Seguro(bw);
+    if (lbw >= 0) {
+      step = exp10(Math.floor(lbw));
+      const r = bw / step;
+      if (r <= 1.1) {} else if (r <= 2.2) step *= 2; else if (r <= 5.5) step *= 5; else step *= 10;
+      divisor = 1;
+      start = step * Math.floor(lo / step);
+      len = Math.ceil((hi - start) / step);
+    } else {
+      divisor = exp10(-Math.floor(lbw));
+      const r = bw * divisor;
+      if (r <= 1.1) {} else if (r <= 2.2) divisor /= 2; else if (r <= 5.5) divisor /= 5; else divisor /= 10;
+      step = 1;
+      start = Math.floor(lo * divisor);
+      len = Math.ceil(hi * divisor - start);
+    }
+  }
+  while (lo < start / divisor) start -= step;
+  while ((start + (len - 1) * step) / divisor <= hi) len += 1;
+  if (len > 10001) throw new NoSoportado("un histograma de tantas barras");
+  // StepRangeLen(TwicePrecision((start, divisor)), TwicePrecision((step, divisor)), len): cada borde en doble-doble
+  const ref = dd(start, divisor), paso = dd(step, divisor);
+  return Array.from({ length: len }, (_, u) => {
+    const sh = u * paso[0], sl = u * paso[1], [xh, xl] = add12(ref[0], sh);
+    return xh + (xl + (sl + ref[1]));
+  });
+}
+// la aritmética de Base.TwicePrecision que hace falta para eso
+const canon2 = (a, b) => { const h = a + b; return [h, (a - h) + b]; };
+const add12 = (x, y) => Math.abs(y) > Math.abs(x) ? canon2(y, x) : canon2(x, y);
+function parte(a) { const c = 134217729 * a, h = c - (c - a); return [h, a - h]; }
+function mul12(a, b) {                       // Math.two_mul: a·b = h + l exactamente (Dekker)
+  const h = a * b; if (!Number.isFinite(h)) return [h, h];
+  const [ah, al] = parte(a), [bh, bl] = parte(b);
+  return [h, ((ah * bh - h) + ah * bl + al * bh) + al * bl];
+}
+function dd(n, d) {                          // TwicePrecision{Float64}((n, d)) = TwicePrecision(n) / d
+  const hi = n / d, [uh, ul] = mul12(hi, d), lo = (((n - uh) - ul) + 0) / d;
+  if (hi === 0 || !Number.isFinite(hi)) return [hi, hi];
+  return canon2(hi, lo);
+}
+// Statistics.quantile (tipo 7) sobre datos ya ordenados
+function cuantil(v, p, enteros) {
+  const n = v.length, m = 1 - p, aleph = n * p + m;        // fma(n, p, m): aquí es exacto
+  const j = Math.min(Math.max(Math.trunc(aleph), 1), n - 1), g = Math.min(Math.max(aleph - j, 0), 1);
+  const a = n === 1 ? v[0] : v[j - 1], b = n === 1 ? v[0] : v[j];
+  const aprox = enteros ? a === b : (a === b || Math.abs(a - b) <= 1.4901161193847656e-8 * Math.max(Math.abs(a), Math.abs(b)));
+  if (Number.isFinite(a) && Number.isFinite(b) && aprox) return a + g * (b - a);
+  return (1 - g) * a + g * b;
+}
+// n^(1/3) como lo calcula Julia (pow de ARM, casi siempre el Float64 más cercano): el valor exacto con
+// enteros grandes, y los dos candidatos cuando cae casi en medio de dos Float64 (comprobado con n ≤ 300 000)
+function icbrt(N) {
+  if (N < 2n) return N;
+  let x = 1n << BigInt(Math.ceil(N.toString(2).length / 3));
+  for (;;) { const y = (2n * x + N / (x * x)) / 3n; if (y >= x) break; x = y; }
+  while (x * x * x > N) x--; while ((x + 1n) ** 3n <= N) x++;
+  return x;
+}
+function enFijo(x) { const b = bits64(x), e = Number((b >> 52n) & 0x7ffn), m = (b & ((1n << 52n) - 1n)) | (1n << 52n); return m << BigInt(e - 1075 + 110); }
+function raicesCubicas(n) {
+  if (n === 1) return [1];
+  const P = 110n, c = icbrt(BigInt(n) << (3n * P));
+  // 1/3 en Float64 es 1/3 − 1/(3·2^54): n^y = ∛n · (1 − ln(n)/(3·2^54) + …)
+  const T = c - ((c * BigInt(Math.round(Math.log(n) / (3 * 2 ** 54) * 2 ** 110))) >> P);
+  let d = n ** (1 / 3);
+  for (let k = 0; k < 3; k++) { const a = enFijo(d); if (a > T && enFijo(anterior(d)) >= T) d = anterior(d); else if (a < T && enFijo(siguiente(d)) <= T) d = siguiente(d); }
+  const a = enFijo(d), o = T >= a ? siguiente(d) : anterior(d), b = enFijo(o), mid = (a + b) / 2n;
+  const ulp = b > a ? b - a : a - b, dist = T > mid ? T - mid : mid - T;
+  if (dist * 20n < ulp) return [d, o];
+  return [(T > a ? T - a : a - T) <= (T > b ? T - b : b - T) ? d : o];
+}
+// cuántas barras: Freedman–Diaconis (bins = :auto), Sturges, raíz cuadrada o Rice
+function numeroDeBarras(v, modo, enteros) {
+  const n = v.length, cl = x => Math.min(Math.ceil(Math.max(x, 1)), 10000);
+  const pide = f => { const r = raicesCubicas(n).map(f);
+    if (r.some(t => t !== r[0])) throw new NoSoportado("este número de barras: cae justo en el borde y depende del último decimal"); return r[0]; };
+  if (modo === "auto" || modo === "fd") {
+    const o = [...v].sort((a, b) => a - b);
+    let q = cuantil(o, 0.75, enteros) - cuantil(o, 0.25, enteros); if (!(q > 0)) q = 1;
+    const span = o[n - 1] - o[0];
+    return pide(nd => cl(span / (2 * q / nd)));
+  }
+  if (modo === "sqrt") return cl(Math.sqrt(n));
+  if (modo === "sturges") { const x = Math.log2(n) + 1; if (Math.abs(x - Math.round(x)) < 1e-12 && !Number.isInteger(Math.log2(n))) throw new NoSoportado("bins = :sturges con este tamaño"); return cl(x); }
+  if (modo === "rice") return pide(nd => cl(2 * nd));
+  throw new NoSoportado("bins = :" + modo);
 }
 
 export function graficos(P, fn, prog) {
@@ -314,7 +431,7 @@ export function graficos(P, fn, prog) {
     return v;
   };
   function serie(sp, tipoBase, xs, ys, at, j) {
-    const idx = sp.series.length + 1;
+    const idx = sp.series.filter(t => t.primaria !== false).length + 1;     // las series secundarias no cuentan
     let tipo = tipoBase;
     if ("seriestype" in at) {
       const t = sim(deSerie(at.seriestype, j), "seriestype");
@@ -331,6 +448,7 @@ export function graficos(P, fn, prog) {
     s.color = "linecolor" in at ? color(deSerie(at.linecolor, j)) : base;
     s.relleno = "markercolor" in at ? color(deSerie(at.markercolor, j)) : base;
     s.borde = "#000000";
+    s.fondo = "fillcolor" in at ? color(deSerie(at.fillcolor, j)) : base;
     // en un scatter, Plots deja el grosor de línea en 0 aunque se le dé otro
     s.ancho = tipo === "scatter" ? I(0) : "linewidth" in at ? numero(deSerie(at.linewidth, j), "linewidth") : I(1);
     if ("linestyle" in at) {
@@ -350,6 +468,7 @@ export function graficos(P, fn, prog) {
   // plot(y), plot(x, y), plot(x, Y): una serie por cada columna de Y
   function anade(p, tipo, args, kw) {
     const at = atributos(kw);
+    if ("bins" in at) throw new NoSoportado("bins fuera de un histograma");
     aplicaGrafico(p.sp, at);
     if (!args.length) return;
     if (args.length > 2) throw new NoSoportado("un gráfico con más de dos datos (x, y): los de tres dimensiones aún no");
@@ -366,6 +485,109 @@ export function graficos(P, fn, prog) {
       serie(p.sp, tipo, xs, ys, at, j);
     });
   }
+
+  // las barras: una serie :shape con un rectángulo por barra (separados por NaN) y una serie secundaria
+  // :scatter invisible con los centros; el eje y no se ensancha y el eje x se ensancha alrededor de las barras
+  const ACEPTA_BARRAS = ["label", "seriescolor", "linecolor", "fillcolor", "markercolor", "linewidth", "bins", "title", "xguide", "yguide", "xlims", "ylims", "legend_position"];
+  const NANV = { n: NaN, s: "NaN" };
+  function barras(p, centros, alturas, hw, at) {
+    for (const k of Object.keys(at)) if (!ACEPTA_BARRAS.includes(k)) throw new NoSoportado("el atributo " + k + " en unas barras");
+    const sp = p.sp;
+    const xs = [], ys = [];
+    centros.forEach((c, i) => {
+      const y = alturas[i];
+      if (!Number.isFinite(c.n) || !Number.isFinite(y)) return;
+      if (xs.length) { xs.push(NANV); ys.push(NANV); }
+      const a = c.n - hw[i], b = c.n + hw[i], A = { n: a, s: V.decimal(a) }, Bv = { n: b, s: V.decimal(b) };
+      const Y = { n: y, s: V.decimal(y) }, Z = { n: 0, s: "0.0" };
+      xs.push(A, A, Bv, Bv, A); ys.push(Y, Z, Z, Y, Y);
+    });
+    if (!xs.length) throw new NoSoportado("unas barras sin ningún valor que dibujar");
+    let lo = Infinity, hi = -Infinity;
+    for (const v of xs) if (Number.isFinite(v.n)) { lo = Math.min(lo, v.n); hi = Math.max(hi, v.n); }
+    const mid = (lo + hi) / 2, span = (hi - lo) / 2;
+    const e = [mid + (-span) * AMPLIAR, mid + span * AMPLIAR];
+    sp.extremos = sp.extremos || {};
+    sp.extremos.x = sp.extremos.x ? [Math.min(sp.extremos.x[0], e[0]), Math.max(sp.extremos.x[1], e[1])] : e;
+    sp.sinEnsanchar = sp.sinEnsanchar || {}; sp.sinEnsanchar.y = true;     // ywiden --> false
+    const idx = sp.series.filter(t => t.primaria !== false).length + 1;
+    let etiqueta = "y" + idx;
+    if ("label" in at) {
+      const l = at.label;
+      if (l.T === "Bool" && l.v) throw new NoSoportado("label = true");
+      etiqueta = (l.T === "Bool" && !l.v) || l.T === "Nothing" ? "" : V.texto(l);
+    }
+    const base = "seriescolor" in at ? color(at.seriescolor) : PALETA[(idx - 1) % PALETA.length];
+    const lc = "linecolor" in at ? color(at.linecolor) : null;
+    const fondo = "fillcolor" in at ? color(at.fillcolor) : base, relleno = "markercolor" in at ? color(at.markercolor) : base;
+    sp.series.push({ tipo: "shape", etiqueta, color: lc || "#000000", ancho: "linewidth" in at ? numero(at.linewidth, "linewidth") : I(1), estilo: "solid",
+      marca: "none", tam: I(4), relleno, borde: "#000000", fondo, primaria: true, x: xs, y: ys });
+    sp.series.push({ tipo: "scatter", etiqueta, color: lc || base, ancho: I(0), estilo: "solid", marca: "circle", tam: I(0), relleno, borde: "#000000", fondo,
+      primaria: false, x: centros, y: alturas.map(y => ({ n: y, s: V.decimal(y) })) });
+  }
+  // bar(y), bar(x, y): las barras centradas en x, de ancho 0,8 veces la menor distancia entre centros
+  function anadeBarras(p, args, kw) {
+    const at = atributos(kw);
+    aplicaGrafico(p.sp, at);
+    if ("bins" in at) throw new NoSoportado("bins en bar");
+    if (!args.length) return;
+    if (args.length > 2) throw new NoSoportado("bar con más de dos datos");
+    if (args.some(a => MX.esMatriz(a))) throw new NoSoportado("bar con una matriz (barras agrupadas)");
+    const ys = datos(args[args.length - 1]).map(v => v.n);
+    const xs = args.length === 2 ? datos(args[0]) : ys.map((_, i) => ({ n: i + 1, s: String(i + 1) }));
+    if (xs.length !== ys.length) throw new NoSoportado("bar con x e y de distinta longitud (" + xs.length + " y " + ys.length + ")");
+    let m = 1;
+    if (xs.length > 1) {
+      const o = xs.map(v => v.n).sort((a, b) => a - b), d = [];
+      for (let i = 1; i < o.length; i++) { const t = o[i] - o[i - 1]; if (t > 0) d.push(t); }
+      if (!d.length) throw new NoSoportado("barras todas en el mismo x");
+      m = Math.min(...d);
+    }
+    const h = 0.5 * 0.8 * m;
+    barras(p, xs, ys, xs.map(() => h), at);
+  }
+  // histogram(v): cuenta los valores de cada intervalo [a, b) y dibuja una barra por intervalo
+  function anadeHistograma(p, args, kw) {
+    const at = atributos(kw);
+    aplicaGrafico(p.sp, at);
+    if (!args.length) return;
+    if (args.length > 1) throw new NoSoportado("histogram con más de un dato");
+    const x = args[0];
+    if (!V.esVector(x)) throw new NoSoportado("histogram de un " + V.tipo(x));
+    const enteros = V.esRango(x) && x.T !== "FloatRange";
+    const v = datos(x).map(e => e.n).filter(Number.isFinite);
+    if (!v.length) throw new NoSoportado("un histograma sin datos");
+    let bordes;
+    const bins = "bins" in at ? at.bins : { T: "Symbol", v: "auto" };
+    if (bins.T === "Symbol" || bins.T === "Int64") {
+      const n = bins.T === "Int64" ? Number(bins.v) : numeroDeBarras(v, bins.v, enteros);
+      if (n < 1) throw new ErrorJulia("ArgumentError: number of bins must be ≥ 1 for a non-empty array, got " + n);
+      let lo = Infinity, hi = -Infinity; for (const t of v) { lo = Math.min(lo, t); hi = Math.max(hi, t); }
+      bordes = histrange(lo, hi, n);
+    } else if (V.esVector(bins)) {
+      bordes = datos(bins).map(e => e.n);
+      for (let i = 1; i < bordes.length; i++) if (!(bordes[i] > bordes[i - 1])) throw new NoSoportado("unos bordes que no van de menor a mayor");
+      if (bordes.length < 2) throw new NoSoportado("bins con menos de dos bordes");
+    } else throw new NoSoportado("bins = " + V.repr(bins));
+    const nb = bordes.length - 1, cuenta = new Array(nb).fill(0);
+    for (const t of v) {                       // searchsortedlast: el último borde ≤ t
+      let a = 0, b = bordes.length;             // bordes[a] ≤ t < bordes[b]
+      if (t < bordes[0]) continue;
+      while (b - a > 1) { const m = (a + b) >> 1; if (bordes[m] <= t) a = m; else b = m; }
+      if (a < nb) cuenta[a]++;
+    }
+    const centros = [], hw = [];
+    for (let i = 0; i < nb; i++) { const c = (bordes[i] + bordes[i + 1]) / 2; centros.push({ n: c, s: V.decimal(c) }); hw.push(0.5 * (bordes[i + 1] - bordes[i])); }
+    if (nb * 6 > 5000) throw new NoSoportado("un histograma de más de 800 barras");
+    barras(p, centros, cuenta, hw, at);
+  }
+  const creaCon = f => (args, kw) => { const p = nuevo(); f(p, args, kw); actual = p; return p; };
+  const sobreCon = f => (args, kw) => {
+    let p;
+    if (args.length && esPlot(args[0])) { p = args[0]; args = args.slice(1); }
+    else p = actual || nuevo();
+    f(p, args, kw); actual = p; return p;
+  };
   const crea = tipo => (args, kw) => { const p = nuevo(); anade(p, tipo, args, kw); actual = p; return p; };
   const sobre = tipo => (args, kw) => {
     let p;
@@ -391,10 +613,11 @@ export function graficos(P, fn, prog) {
     plot: crea("path"), "plot!": sobre("path"), scatter: crea("scatter"), "scatter!": sobre("scatter"),
     "title!": cambia("title!", "title"), "xlabel!": cambia("xlabel!", "xguide"), "ylabel!": cambia("ylabel!", "yguide"),
     "xlims!": cambia("xlims!", "xlims", true), "ylims!": cambia("ylims!", "ylims", true),
+    bar: creaCon(anadeBarras), "bar!": sobreCon(anadeBarras), histogram: creaCon(anadeHistograma), "histogram!": sobreCon(anadeHistograma),
     current: () => { if (!actual) throw new NoSoportado("current() sin un gráfico"); return actual; },
     savefig: () => { throw new NoSoportado("savefig: el laboratorio no guarda archivos"); },
   };
-  for (const n of ["bar", "bar!", "histogram", "histogram!", "heatmap", "contour", "surface", "pie", "boxplot", "layout", "@layout", "gui", "annotate!", "hline!", "vline!", "plot3d", "scatter3d", "areaplot", "sticks", "density", "@animate", "animate", "gif"])
+  for (const n of ["heatmap", "contour", "surface", "pie", "boxplot", "layout", "@layout", "gui", "annotate!", "hline!", "vline!", "plot3d", "scatter3d", "areaplot", "sticks", "density", "@animate", "animate", "gif"])
     PL[n] = () => { throw new NoSoportado(n + " de Plots: el laboratorio aún no lo dibuja"); };
   P.paquetes.Plots = PL;
   P.describeGrafico = describeGrafico;

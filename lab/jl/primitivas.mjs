@@ -11,6 +11,7 @@ import * as TP from "./tipos.mjs";
 import * as TB from "./tablas.mjs";
 import * as AL from "./algebra.mjs";
 import * as GR from "./graficos.mjs";
+import * as AZ from "./azar.mjs";
 import { ErrorJulia, NoSoportado, I, F, B, S, Ch, NADA, FALTA, errorMetodo, aNum, tipo, repr } from "./valores.mjs";
 
 const T = nombre => ({ T: "Tipo", nombre });
@@ -20,7 +21,7 @@ export const TIPOS = {
   Rational: T("Rational"), Nothing: T("Nothing"), Missing: T("Missing"),
 };
 // Nombres de Julia que existen pero que el laboratorio aún no sabe ejecutar
-export const CONOCIDAS = new Set(("big BigInt BigFloat Float32 Int32 Int8 UInt8 UInt Complex complex im rand randn seed! Random mean median std var " +
+export const CONOCIDAS = new Set(("big BigInt BigFloat Float32 Int32 Int8 UInt8 UInt Complex complex im mean median " +
   "Set lpad rpad " +
   "chomp reduce foldl foldr mapreduce accumulate cumsum cumprod diff unique sortperm argmax argmin extrema " +
   "Matrix Array axes LinearAlgebra Statistics println_ " +
@@ -718,11 +719,13 @@ export function crearPrimitivas(prog) {
   TB.funcionesDeTablas(P, fn, prog);
   AL.algebraLineal(P, fn);
   GR.graficos(P, fn, prog);
+  AZ.funcionesDeAzar(P, fn, prog);
   const tabla = new Map(Object.entries(fn).map(([k, f]) => [k, { T: "Primitiva", nombre: k, f }]));
-  const constantes = { π: V.PI, pi: V.PI, ℯ: V.E, Inf: F(Infinity), NaN: F(NaN), nothing: NADA, missing: FALTA, true: B(true), false: B(false) };
+  const constantes = { Random: { T: "Modulo", nombre: "Random" }, π: V.PI, pi: V.PI, ℯ: V.E, Inf: F(Infinity), NaN: F(NaN), nothing: NADA, missing: FALTA, true: B(true), false: B(false) };
   // los paquetes que el programa ha cargado con using (DataFrames, Statistics)
   const cargados = new Map();
   P.carga = nombre => { if (!P.paquetes[nombre]) return false; cargados.set(nombre, new Map(Object.entries(P.paquetes[nombre]).map(([k, f]) => [k, typeof f === "function" ? { T: "Primitiva", nombre: k, f } : f]))); return true; };
+  V.GANCHOS.usaRandom = () => cargados.has("Random");
   P.cargado = nombre => cargados.has(nombre);
   const dePaquete = n => { for (const t of cargados.values()) if (t.has(n)) return t.get(n); return null; };
   P.tiene = n => tabla.has(n) || n in constantes || !!dePaquete(n);
@@ -730,13 +733,22 @@ export function crearPrimitivas(prog) {
   return P;
 }
 
-// Julia suma los decimales por parejas (suma por bloques), no de uno en uno: el último dígito puede cambiar
+// Julia suma los decimales de uno en uno solo en los vectores cortos (menos de 16). En los largos, el
+// compilador reparte la suma en varios acumuladores (SIMD), con un orden que depende del procesador, y el
+// último dígito puede cambiar de un ordenador a otro (comprobado: con 16 o más decimales al azar, más de la
+// mitad de las sumas no coinciden con la suma de uno en uno). El laboratorio solo da la suma de un vector
+// largo cuando es exacta en cualquier orden.
 function sumaPareada(xs) {
-  const rec = (i, n) => {
-    if (n <= 1024) { let s = xs[i]; for (let k = 1; k < n; k++) s += xs[i + k]; return s; }
-    const m = n >> 1; return rec(i, m) + rec(i + m, n - m);
-  };
-  return xs.length ? rec(0, xs.length) : 0;
+  if (xs.length < 16) { let s = xs[0]; for (let k = 1; k < xs.length; k++) s += xs[k]; return xs.length ? s : 0; }
+  if (xs.some(Number.isNaN)) return NaN;
+  const pos = xs.includes(Infinity), neg = xs.includes(-Infinity);
+  if (pos && neg) return NaN;
+  if (pos) return Infinity;
+  if (neg) return -Infinity;
+  const s = MX.sumaExacta(xs.map(x => [x, 1]));
+  if (s === null) throw new NoSoportado("la suma de " + xs.length + " decimales que no es exacta: con 16 o más, Julia los suma en un orden que depende del procesador, y la última cifra puede cambiar de un ordenador a otro. El laboratorio solo da la suma cuando es exacta en cualquier orden (por ejemplo, con notas de medio punto o con enteros)");
+  if (s === 0) return xs.every(x => Object.is(x, -0)) ? -0 : 0;
+  return s;
 }
 
 function analiza(t, s) {

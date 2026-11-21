@@ -92,7 +92,7 @@ class Programa {
   unId(x) { if (!this.ids.has(x)) this.ids.set(x, this.ids.size + 1); return this.ids.get(x); }
   describe(x, prof = 0) {
     if (x.T === "Funcion") return { t: "function", r: this.firma(x.nombre), m: x.nmetodos() };
-    if (x.T === "Primitiva") return { t: "function", r: x.nombre, m: 1 };
+    if (x.T === "Primitiva") return { t: "function", r: x.fix ? "Fix" : x.nombre, m: x.fix ? 2 : 1 };     // ==(6) es un Base.Fix2: nameof da :Fix
     if (V.esEscalar(x)) return { t: V.tipo(x), e: true, v: [V.repr(x)] };
     if (x.T === "DataFrame") {          // como trazar.jl: la tabla, sus columnas y la identidad de cada una
       const n = x.cols.length ? V.largo(x.cols[0]) : 0;
@@ -293,7 +293,7 @@ class Programa {
       case "using_statement": {       // using DataFrames, Statistics, LinearAlgebra: los paquetes que el laboratorio conoce
         if (nivel !== 0) throw new NoSoportado("using dentro de un bloque");
         const ps = hijos(n);
-        for (const p of ps) if (p.type !== "identifier" || !this.prim.paquetes[p.text]) throw new NoSoportado("cargar el paquete " + p.text + ": el laboratorio solo conoce DataFrames, Statistics, LinearAlgebra y Plots");
+        for (const p of ps) if (p.type !== "identifier" || !this.prim.paquetes[p.text]) throw new NoSoportado("cargar el paquete " + p.text + ": el laboratorio solo conoce DataFrames, Statistics, LinearAlgebra, Random y Plots");
         this.va(l);
         for (const p of ps) this.prim.carga(p.text);
         this.paso(l, sc);
@@ -596,6 +596,11 @@ class Programa {
       case "field_expression": {
         const [obj, campo] = hijos(n), x = this.valor(obj, sc), c = campo.text;
         if (x.T === "Struct") return this.prim.leeCampo(x, c);
+        if (x.T === "Modulo") {          // Random.seed!(42): una función de un módulo
+          const f = (this.prim.modulos[x.nombre] || {})[c];
+          if (!f) throw new NoSoportado(x.nombre + "." + c);
+          return { T: "Primitiva", nombre: c, f };
+        }
         if (x.T === "DataFrame" || x.T === "FilaDF") return this.prim.leeColumna(x, c);
         if (x.T === "NamedTuple") {
           const i = x.nombres.indexOf(c);
@@ -775,6 +780,11 @@ class Programa {
       const op = n.namedChild(0).text, lista0 = n.namedChildren.find(c => c.type === "argument_list");
       const [args] = this.argumentos(lista0, sc);
       if (difundir) return this.prim.difunde(op, args);
+      // ==(6), <(3): con un solo argumento, una comparación a medio hacer (Base.Fix2)
+      if (args.length === 1 && ["==", "!=", "≠", "<", "<=", "≤", ">", ">=", "≥", "===", "!==", "∈", "∉"].includes(op)) {
+        const y = args[0], prim = this.prim;
+        return { T: "Primitiva", nombre: op + "(" + V.repr(y) + ")", fix: true, f: ([x]) => prim.binaria(op, x, y) };
+      }
       return args.length === 1 ? this.prim.unaria(op, args[0]) : args.slice(1).reduce((a, b) => this.prim.binaria(op, a, b), args[0]);
     }
     const fn = hijos(n)[0];

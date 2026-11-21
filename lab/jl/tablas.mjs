@@ -162,6 +162,17 @@ export function funcionesDeTablas(P, fn, prog) {
     if (n % 2) return V.convierte(o[(n - 1) / 2], "Float64");
     return P.binaria("+", P.binaria("/", o[n / 2 - 1], I(2)), P.binaria("/", o[n / 2], I(2)));       // Statistics.middle: x/2 + y/2
   };
+  // var y std: Σ (x − media)² / (n − 1), la suma con las mismas reglas que sum (Statistics.varm)
+  ST.var = ([x, ...resto], kw) => {
+    if (resto.length || (kw && kw.size)) throw new NoSoportado("var con más argumentos");
+    const els = nums("var", x), m = ST.mean([x]);
+    const t = els.map(e => { const d = P.binaria("-", e, m); return P.binaria("*", d, d); });
+    return P.binaria("/", fn.sum([V.vec("Float64", t)], new Map()), I(els.length - 1));
+  };
+  ST.std = ([x, ...resto], kw) => {
+    if (resto.length || (kw && kw.size)) throw new NoSoportado("std con más argumentos");
+    return fn.sqrt([ST.var([x], new Map())], new Map());
+  };
   P.paquetes = { DataFrames: DF, Statistics: ST };
 
   // ── Las funciones de Base que también sirven para tablas ─────────────────

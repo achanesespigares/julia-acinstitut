@@ -107,6 +107,7 @@ function describe_serie(s)
         "color" => color_hex(s[:linecolor]), "ancho" => num(s[:linewidth]), "estilo" => string(s[:linestyle]),
         "marca" => string(s[:markershape]), "tam" => num(s[:markersize]),
         "relleno" => color_hex(s[:markercolor]), "borde" => color_hex(s[:markerstrokecolor]),
+        "fondo" => color_hex(s[:fillcolor]), "primaria" => s[:primary] === true,
         "x" => [un_valor(v) for v in s[:x]], "y" => [un_valor(v) for v in s[:y]])
 end
 describe_grafico(p) = Dict{String,Any}("sp" => [Dict{String,Any}("titulo" => string(sp[:title]),

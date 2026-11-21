@@ -181,7 +181,7 @@ p
 
 **Una curiosidad.** Plots acepta muchos atajos para las formas de los puntos: `:rect` es un cuadrado, `:diamond` un rombo y `:utriangle` un triángulo. Pero ojo con `marker = :o`: no es un círculo, sino un **octógono**. El círculo es `:circle`.
 
-**Y en el laboratorio.** El laboratorio calcula lo mismo que Plots antes de dibujar: los puntos de cada serie, los colores de la paleta, los límites de los ejes y sus marcas, con el mismo algoritmo. Comprobado con 1 800 gráficos al azar: en los que calculó, coincidió con Julia en todo. El dibujo lo hace el propio laboratorio, así que se parece al de Plots, pero no es idéntico píxel a píxel. Entiende `plot`, `scatter`, `plot!`, `scatter!`, `title!`, `xlabel!`, `ylabel!`, `xlims!` e `ylims!`, con los atributos de este capítulo. Las barras, los histogramas, las funciones dibujadas directamente, los gráficos en 3D, las animaciones y `savefig` están en la nube, que tiene Julia completo.
+**Y en el laboratorio.** El laboratorio calcula lo mismo que Plots antes de dibujar: los puntos de cada serie, los colores de la paleta, los límites de los ejes y sus marcas, con el mismo algoritmo. Comprobado con 1 800 gráficos al azar: en los que calculó, coincidió con Julia en todo. El dibujo lo hace el propio laboratorio, así que se parece al de Plots, pero no es idéntico píxel a píxel. Entiende `plot`, `scatter`, `plot!`, `scatter!`, `title!`, `xlabel!`, `ylabel!`, `xlims!` e `ylims!`, con los atributos de este capítulo. Las barras y los histogramas llegan en el capítulo siguiente, *Probabilidad y simulación*. Las funciones dibujadas directamente, los gráficos en 3D, las animaciones y `savefig` están en la nube, que tiene Julia completo.
 ::::
 
 :::{admonition} La misma idea en tres lenguajes

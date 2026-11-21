@@ -59,6 +59,8 @@ export function tipo(x) {
     case "Matrix": return GANCHOS.tipoM(x);
     case "Uniforme": return "UniformScaling{" + tipo(x.l) + "}";
     case "Plot": return "Plots.Plot{Plots.GRBackend}";
+    case "RNG": return GANCHOS.usaRandom && GANCHOS.usaRandom() ? "TaskLocalRNG" : "Random.TaskLocalRNG";
+    case "Modulo": return "Module";
     case "Struct": return x.tipo;
     case "DataFrame": return "DataFrame";
     case "FilaDF": return "DataFrameRow{DataFrame, DataFrames.Index}";
@@ -210,6 +212,8 @@ export function repr(x, dentro = false) {
     case "Matrix": return GANCHOS.reprM(x);
     case "Uniforme": return "UniformScaling{" + tipo(x.l) + "}(" + repr(x.l) + ")";
     case "Plot": return "Plot{Plots.GRBackend() n=" + x.sp.series.length + "}";
+    case "RNG": return "TaskLocalRNG()";
+    case "Modulo": return x.nombre;
     case "Struct": return x.tipo + "(" + x.a.map(e => repr(e)).join(", ") + ")";
     case "DataFrame": case "FilaDF": case "GrupoDF": return GANCHOS.muestraDF(x);      // show de un tipo propio: Alumna("Ana", 2, 9.0)
     case "Dict": {
