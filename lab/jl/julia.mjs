@@ -12,6 +12,7 @@
 import * as V from "./valores.mjs";
 import { ErrorJulia, NoSoportado, I, F, B, S, Ch, NADA, FALTA } from "./valores.mjs";
 import { crearPrimitivas, TIPOS, CONOCIDAS } from "./primitivas.mjs";
+import { NOMBRES_BASE } from "./nombres-base.mjs";
 import * as MX from "./matrices.mjs";
 
 const LIMITE = 2000;
@@ -226,7 +227,7 @@ class Programa {
       if (p === "Plots") throw new ErrorJulia(base.replace(/\n$/, ""));
       throw new ErrorJulia(base + "Hint: a global variable of this name also exists in " + p + ".");
     }
-    if (CONOCIDAS.has(nombre)) throw new NoSoportado("la función " + nombre + "()");
+    if (CONOCIDAS.has(nombre) || NOMBRES_BASE.has(nombre)) throw new NoSoportado("la función " + nombre + "()");
     throw new ErrorJulia("UndefVarError: `" + nombre + "` not defined in `Main`\nSuggestion: check for spelling errors or missing imports.");
   }
   asigna(nombre, v, sc) {

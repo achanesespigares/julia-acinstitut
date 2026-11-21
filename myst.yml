@@ -38,6 +38,7 @@ project:
         - file: capitulos/12-graficos.md
         - file: capitulos/13-probabilidad.md
         - file: capitulos/14-ecuaciones-optimizacion.md
+        - file: capitulos/15-ecuaciones-diferenciales.md
 site:
   template: book-theme
   options:

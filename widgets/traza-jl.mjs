@@ -383,6 +383,7 @@ const EJEMPLOS = [
   { nombre: "Un gráfico", codigo: "using Plots\nexamen = 1:3\nana = [6.5, 8.0, 9.0]\nbiel = [5.0, 6.5, 7.5]\np = plot(examen, ana, label = \"Ana\", title = \"Notas\", xlabel = \"examen\")\nplot!(p, examen, biel, label = \"Biel\")\nscatter!(p, [3], [9.0], label = \"la mejor\", markersize = 7)" },
   { nombre: "Dados al azar", codigo: "using Plots, Random\nRandom.seed!(7)\nd1 = rand(1:6, 1000)\nd2 = rand(1:6, 1000)\nsuma = d1 .+ d2\nsietes = count(==(7), suma)\nhistogram(suma, bins = 1.5:1:12.5, label = \"suma de dos dados\")" },
   { nombre: "Una ecuación", codigo: "function biseccion(f, a, b; tol = 0.001)\n    while b - a > tol\n        m = (a + b) / 2\n        if f(a) * f(m) <= 0\n            b = m\n        else\n            a = m\n        end\n    end\n    return (a + b) / 2\nend\n\ng(x) = x^3 - x - 2\nr = biseccion(g, 1, 2)" },
+  { nombre: "El café que se enfría", codigo: "k = 0.1\nT = 90.0\nt = 0.0\nh = 2.0\nwhile t < 20\n    T = T + h * (-k * (T - 20))\n    t += h\nend\nT", tabla: "t, T" },
   { nombre: "Un bucle que suma", codigo: "notas = [9.0, 6.5, 4.0, 7.5]\ntotal = 0.0\nfor i in eachindex(notas)\n    if notas[i] >= 5\n        total += notas[i]\n    end\nend\ntotal", tabla: "i, notas[i], total" },
   { nombre: "Una función", codigo: "function media(v)\n    s = 0.0\n    for x in v\n        s += x\n    end\n    return s / length(v)\nend\n\nm = media([2, 4, 9])\nprintln(\"La media es \", m)" },
   { nombre: "b = a no copia", codigo: "a = [1, 2, 3]\nb = a\nb[1] = 100\na\nc = copy(a)\nc[1] = 0\na" },
@@ -649,7 +650,9 @@ function dibujaTraza(el, C, D) {
     // se comparan las variables del ámbito que se está ejecutando: la llamada en curso o el programa principal
     const marco = x => x && x.marcos && x.marcos.length ? x.marcos[x.marcos.length - 1] : null;
     const mp = marco(p), ma = marco(prev);
-    const ahora = mp ? mp.vars : p.estado, antes = mp ? (ma && ma.id === mp.id ? ma.vars : {}) : prev.estado;
+    // al volver de otra llamada, el marco de antes es el de la función llamada: se busca el de esta en la pila
+    const mismo = mp && prev && prev.marcos ? prev.marcos.find(m => m.id === mp.id) : null;
+    const ahora = mp ? mp.vars : p.estado, antes = mp ? (mismo ? mismo.vars : {}) : prev.estado;
     const orden = mp ? mp.orden : p.orden;
     const hechos = [];      // las variables que ya han cambiado en este paso
     const casillasDe = [];  // las que cambian porque comparten casillas con la de la línea (vec, reshape)
@@ -759,6 +762,14 @@ function dibujaTraza(el, C, D) {
           (a.t !== b.t ? " Ha cambiado de tipo: era un " + code(a.t) + " y ahora es un " + code(b.t) + "." : ""));
         continue;
       }
+      // u = u + h * f(u), o v = [0.0, 0.0]: el nombre cambia de vector, aunque tenga la misma longitud; el de antes sigue ahí
+      if (a.id && b.id && a.id !== b.id && a.v && b.v && !a.dict && !b.dict && !b.df && !b.plot && !b.struct) {
+        const otros = nombres(p.estado, p.orden).filter(m => m !== n && p.estado[m] && p.estado[m].id === a.id);
+        const valores = !b.d && !b.nv && b.v.length && b.v.length <= 6 ? ", " + code("[" + b.v.join(", ") + "]") : "";
+        frases.push("El nombre " + code(n) + " pasa a señalar " + (b.d ? "una matriz <b>nueva</b>" : "un vector <b>nuevo</b>") + valores + ": " + quees(b) + "." +
+          (otros.length ? " " + otros.map(code).join(" y ") + " no cambia: sigue siendo " + (b.d ? "la matriz" : "el vector") + " de antes." : ""));
+        hechos.push(n); continue;
+      }
       if (a.v && b.v && a.v.length === b.v.length && !a.nv && !b.nv && a.t === b.t) {
         const camb = b.v.map((x, i) => x !== a.v[i] ? i : -1).filter(i => i >= 0);
         if (b.d && a.d && a.d.join() === b.d.join()) {      // en una matriz, cada casilla con su fila y su columna
@@ -785,7 +796,7 @@ function dibujaTraza(el, C, D) {
         frases.push(code(n) + " gana un elemento al final, " + esc(b.v[b.v.length - 1]) + ": ahora tiene " + b.v.length + (b.v.length === 1 ? " elemento." : " elementos."));
         hechos.push(n); continue;
       }
-      if (a.id && b.id && a.id !== b.id) {     // v = [0.0, 0.0]: el nombre cambia de vector; el vector de antes sigue ahí
+      if (a.id && b.id && a.id !== b.id) {     // otro objeto con el mismo nombre (diccionarios, tablas…)
         const otros = nombres(p.estado, p.orden).filter(m => m !== n && p.estado[m] && p.estado[m].id === a.id);
         frases.push("El nombre " + code(n) + " pasa a señalar un vector <b>nuevo</b>: " + quees(b) + "." +
           (otros.length ? " " + otros.map(code).join(" y ") + " no cambia: sigue siendo el vector de antes." : ""));
@@ -853,6 +864,9 @@ function dibujaTraza(el, C, D) {
       if (llam && prev && prev.tipo === "devuelve" && prev.valor === "nothing")
         return "La llamada a " + code(llam) + " ha terminado. Como devuelve " + code("nothing") + ", la consola no muestra nada: lo que importaba era lo que ha hecho por el camino.";
     }
+    // condición || error("…"): si el paso no es un error, la condición era true y error no llega a ejecutarse
+    const oCorto = (L[p.linea - 1] || "").match(/^\s*(.+?)\s*\|\|\s*error\(/);
+    if (!frases.length && oCorto) return "Se comprueba " + code(oCorto[1]) + ": es <code>true</code>, así que el <code>||</code> no necesita mirar lo de la derecha, y <code>error</code> no se ejecuta. El programa sigue.";
     return frases.length ? frases.join(" ") : "Se ejecuta la línea " + p.linea + ".";
   }
 

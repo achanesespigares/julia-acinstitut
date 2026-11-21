@@ -525,6 +525,7 @@ export function crearPrimitivas(prog) {
   fn.atan = unNum("atan", x => F(Math.atan(aNum(x))));          // comprobado: igual que Julia en 60 000 valores
   for (const t of ["tan", "sinh", "cosh", "tanh", "asin", "acos", "expm1", "log1p"]) fn[t] = unNum(t, x => { throw new NoSoportado(t + ": el laboratorio aún no lo calcula con el último dígito de Julia (pruébalo en la nube)"); });
   fn.abs = unNum("abs", x => x.T === "Int64" ? I(x.v < 0n ? -x.v : x.v) : x.T === "Bool" ? x : x.T === "Rational" ? V.rac(x.n < 0n ? -x.n : x.n, x.d) : F(Math.abs(aNum(x))));
+  fn.abs2 = unNum("abs2", x => x.T === "Bool" ? x : P.binaria("*", x, x));
   fn.sign = unNum("sign", x => x.T === "Int64" ? I(x.v > 0n ? 1 : x.v < 0n ? -1 : 0) : F(Math.sign(aNum(x))));
   fn.iszero = unNum("iszero", x => B(aNum(x) === 0));
   fn.iseven = unNum("iseven", x => { if (!esEnteroLike(x)) throw errorMetodo("iseven", [x]); return B(bigDe(x) % 2n === 0n); });
