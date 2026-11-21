@@ -19,8 +19,29 @@ class Retorno { constructor(v) { this.v = v; } }
 class Corte { constructor(que) { this.que = que; } }       // break o continue
 
 // ── Precedencias de Julia (Base.operator_precedence), para escribir expresiones como Julia ─────
-const PREC = { "=": 1, "=>": 4, "||": 5, "&&": 6, ":": 10, "+": 11, "-": 11, "|": 11, "*": 12, "/": 12, "÷": 12, "%": 12, "&": 12, "//": 13, "^": 15 };
+const PREC = { "=": 1, "=>": 4, "||": 5, "&&": 6, ":": 10, "+": 11, "-": 11, "|": 11, "*": 12, "/": 12, "÷": 12, "%": 12, "&": 12, "//": 13, "^": 15, "\\": 12 };
 const COMPARA = new Set(["<", ">", "<=", ">=", "==", "!=", "≠", "≤", "≥", "≈", "===", "!==", "∈", "in", "isa"]);
+// tree-sitter lee 1/(2 + 1) como «1» seguido de la llamada /(2 + 1). Se entiende como 1 / (2 + 1) cuando la
+// precedencia del resto de la expresión no cambia el resultado; si no, NoSoportado (nunca un resultado distinto)
+const OPS_PEGADOS = new Set(["/", "//", "*", "+", "-", "^", "÷", "%", "\\"]);
+function pegado(n) {
+  if (n.type !== "juxtaposition_expression") return null;
+  const cs = n.namedChildren.filter(c => c.type !== "line_comment" && c.type !== "block_comment");
+  if (cs.length !== 2 || !["integer_literal", "float_literal"].includes(cs[0].type) || cs[1].type !== "call_expression") return null;
+  const f = cs[1].namedChild(0), lista = cs[1].namedChildren.find(c => c.type === "argument_list");
+  if (!f || f.type !== "operator" || !OPS_PEGADOS.has(f.text) || !lista) return null;
+  const args = lista.namedChildren.filter(c => c.type !== "line_comment");
+  if (args.length !== 1 || args[0].type === "named_argument" || args[0].type === "splat_expression") return null;
+  return { a: cs[0], op: f.text, b: args[0] };
+}
+function pegadoSeguro(n, pg) {
+  const p = n.parent;
+  if (!p || (p.type !== "binary_expression" && p.type !== "juxtaposition_expression")) return true;
+  if (p.type === "juxtaposition_expression") return false;
+  const op1 = opDe(p), izquierda = p.namedChild(0).id === n.id;
+  if (op1 === pg.op && op1 === "^") return false;
+  return izquierda ? prec(op1) <= prec(pg.op) && op1 !== "^" : prec(op1) < prec(pg.op);
+}
 const prec = op => COMPARA.has(op.replace(/^\./, "")) ? 7 : (PREC[op] ?? PREC[op.replace(/^\./, "")] ?? 12);
 
 const hijos = n => { const r = []; for (let i = 0; i < n.namedChildCount; i++) { const c = n.namedChild(i); if (c.type !== "line_comment" && c.type !== "block_comment" && c.type !== "operator") r.push(c); } return r; };
@@ -197,7 +218,7 @@ class Programa {
     if (nombre in TIPOS) return TIPOS[nombre];
     if (this.prim.tiene(nombre)) return this.prim.funcion(nombre);
     // un nombre de un paquete que el programa no ha cargado: Julia da una pista (los paquetes están cargados en trazar.jl)
-    for (const [p, t] of Object.entries(this.prim.paquetes)) if (nombre in t && typeof t[nombre] === "function")
+    for (const [p, t] of Object.entries(this.prim.paquetes)) if (nombre in t)
       throw new ErrorJulia("UndefVarError: `" + nombre + "` not defined in `Main`\nSuggestion: check for spelling errors or missing imports.\nHint: a global variable of this name also exists in " + p + ".");
     if (CONOCIDAS.has(nombre)) throw new NoSoportado("la función " + nombre + "()");
     throw new ErrorJulia("UndefVarError: `" + nombre + "` not defined in `Main`\nSuggestion: check for spelling errors or missing imports.");
@@ -263,10 +284,10 @@ class Programa {
         this.sale(v);
         throw new Retorno(v);
       }
-      case "using_statement": {       // using DataFrames, Statistics: los dos paquetes que el laboratorio conoce
+      case "using_statement": {       // using DataFrames, Statistics, LinearAlgebra: los paquetes que el laboratorio conoce
         if (nivel !== 0) throw new NoSoportado("using dentro de un bloque");
         const ps = hijos(n);
-        for (const p of ps) if (p.type !== "identifier" || !this.prim.paquetes[p.text]) throw new NoSoportado("cargar el paquete " + p.text + ": el laboratorio solo conoce DataFrames y Statistics");
+        for (const p of ps) if (p.type !== "identifier" || !this.prim.paquetes[p.text]) throw new NoSoportado("cargar el paquete " + p.text + ": el laboratorio solo conoce DataFrames, Statistics y LinearAlgebra");
         this.va(l);
         for (const p of ps) this.prim.carga(p.text);
         this.paso(l, sc);
@@ -535,7 +556,14 @@ class Programa {
         }
         return this.prim.unaria(op, this.valor(x, sc));
       }
-      case "juxtaposition_expression": { const [a, b] = hijos(n); return this.prim.binaria("*", this.valor(a, sc), this.valor(b, sc)); }
+      case "juxtaposition_expression": {
+        const pg = pegado(n);
+        if (pg) {
+          if (!pegadoSeguro(n, pg)) throw new NoSoportado("leer " + n.text + " junto al resto de la expresión: escribe espacios alrededor del operador (por ejemplo, 1 / (2 + 1))");
+          return this.prim.binaria(pg.op, this.valor(pg.a, sc), this.valor(pg.b, sc));
+        }
+        const [a, b] = hijos(n); return this.prim.binaria("*", this.valor(a, sc), this.valor(b, sc));
+      }
       case "call_expression": return this.llamada(n, sc, false);
       case "broadcast_call_expression": return this.llamada(n, sc, true);
       case "vector_expression": return this.prim.vectorLiteral(hijos(n).map(c => this.valor(c, sc)));
@@ -928,6 +956,8 @@ class Programa {
     const binario = (nodo, padrePrec, lado) => {
       const [a, b] = hijos(nodo);
       if (nodo.type === "juxtaposition_expression") {
+        const pg = pegado(nodo);
+        if (pg) { const p = prec(pg.op); return envuelve(ESC(pg.a, p, "i") + " " + pg.op + " " + ESC(pg.b, p, "d"), p, padrePrec, lado); }
         if (a.type === "integer_literal" || a.type === "float_literal") {
           if (desnuda(b).type === "identifier" && !valorDe(b)) return ESC(a) + ESC(b);
         }

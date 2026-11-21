@@ -43,7 +43,8 @@ export const eltipoM = x => x.vista ? V.eltipo(x.p) : x.el;
 export function tipoM(x) {
   if (!x.vista) return x.bit ? "BitMatrix" : "Matrix{" + x.el + "}";
   const el = eltipoM(x);
-  return "LinearAlgebra." + (x.vista === "adjoint" ? "Adjoint" : "Transpose") + "{" + el + ", " + tipo(x.p) + "}";
+  // con using LinearAlgebra, Julia escribe Adjoint sin el nombre del módulo
+  return (V.GANCHOS.laVisible && V.GANCHOS.laVisible() ? "" : "LinearAlgebra.") + (x.vista === "adjoint" ? "Adjoint" : "Transpose") + "{" + el + ", " + tipo(x.p) + "}";
 }
 export const forma = x => { const d = dims(x); return d.length === 1 ? d[0] + "-element" : d.join("×"); };
 
@@ -54,7 +55,7 @@ export function reprM(x) {
   const [f, c] = dims(x), el = eltipoM(x);
   const bools = el === "Bool";
   const pref = bools ? "Bool" : ["Any", "Rational{Int64}", "SubString{String}", "AbstractString"].includes(el) ? el : "";
-  const e = v => bools ? (v.v ? "1" : "0") : repr(v, true);
+  const e = v => bools ? (v.v ? "1" : "0") : el === "Rational{Int64}" && v.T === "Rational" ? V.racTI(v) : repr(v, true);
   if (!f || !c) return el + "[]";
   const filas = [];
   for (let i = 1; i <= f; i++) { const fila = []; for (let j = 1; j <= c; j++) fila.push(e(get(x, i, j))); filas.push(fila.join(" ")); }
@@ -64,7 +65,7 @@ export function reprM(x) {
 function alinea(s, e) {
   if (e.T === "Int64" || e.T === "Bool") return [[...s].length, 0];
   if (e.T === "Float64") { const m = /^(.*?)((?:[\.eEfF].*)?)$/.exec(s); return [[...m[1]].length, [...m[2]].length]; }
-  if (e.T === "Rational") { const k = s.indexOf("//"); return [k + 1, s.length - k - 1]; }
+  if (e.T === "Rational") { const k = s.indexOf("//"); return k < 0 ? [s.length, 0] : [k + 1, s.length - k - 1]; }
   return [0, [...s].length];
 }
 // display: la cabecera y las filas alineadas por columnas. Es print_matrix de Julia (base/arrayshow.jl)
@@ -75,7 +76,7 @@ export function muestraM(x, limita = false) {
   const cab = x.vista ? f + "×" + c + " " + x.vista + "(::" + tipo(x.p) + ") with eltype " + el : f + "×" + c + " " + tipoM(x);
   if (!f || !c) return cab;
   const compacto = c > 1;
-  const texto = e => e.T === "Bool" ? (e.v ? "1" : "0") : e.T === "Float64" ? V.decimal(e.v, compacto) : e.T === "Char" && !compacto ? V.muestra(e) : repr(e, true);
+  const texto = e => e.T === "Bool" ? (e.v ? "1" : "0") : e.T === "Float64" ? V.decimal(e.v, compacto) : e.T === "Char" && !compacto ? V.muestra(e) : el === "Rational{Int64}" && e.T === "Rational" ? V.racTI(e) : repr(e, true);
   const memo = new Map();
   const celda = (i, j) => { const k = (j - 1) * f + i; if (!memo.has(k)) { const e = get(x, i, j), s = texto(e); memo.set(k, [s, alinea(s, e)]); } return memo.get(k); };
   const alto = limita ? 24 - 4 : Infinity, ancho = (limita ? 80 : Infinity) - 1;     // pre = " ", post = ""
@@ -144,7 +145,7 @@ V.GANCHOS.tipoM = tipoM; V.GANCHOS.reprM = reprM; V.GANCHOS.muestraM = muestraM;
 // cambia de un procesador a otro). El laboratorio solo da el resultado cuando es el mismo en
 // cualquier orden: cuando todos los productos y todas las sumas parciales son exactos.
 const bits = x => { const dv = new DataView(new ArrayBuffer(8)); dv.setFloat64(0, x); return dv.getBigUint64(0); };
-function exacto(x) {                     // x = m · 2^e, con m entero
+export function exacto(x) {                     // x = m · 2^e, con m entero
   if (x === 0) return [0n, 0];
   const b = bits(x), neg = b >> 63n, ex = Number((b >> 52n) & 0x7ffn), fr = b & ((1n << 52n) - 1n);
   let m = ex === 0 ? fr : fr | (1n << 52n), e = (ex === 0 ? 1 : ex) - 1075;

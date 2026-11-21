@@ -50,8 +50,13 @@ const T = Ref{Estado}()
 # El programa corre en un módulo propio, Module(:Main), y Julia escribe sus tipos como Main.Main.Alumna. En el
 # REPL, un tipo definido por el usuario se escribe Alumna: se quita ese prefijo de todo lo que se escribe.
 sin_main(s) = replace(s, "Main.Main." => "")
-un_valor(x) = sin_main(repr(x))
-nombre_tipo(x) = sin_main(string(typeof(x)))
+# Julia escribe un tipo sin el nombre de su módulo si el programa lo ve: con `using LinearAlgebra`, I es un
+# UniformScaling{Bool}; sin él, un LinearAlgebra.UniformScaling{Bool}. El contexto :module hace que se escriba
+# como lo vería el programa, que corre en su propio módulo (capítulo 11)
+contexto(io) = IOContext(io, :module => T[].modulo)
+de_modulo(f, x) = sprint(f, x; context = :module => T[].modulo)
+un_valor(x) = sin_main(de_modulo(show, x))
+nombre_tipo(x) = sin_main(de_modulo(show, typeof(x)))
 es_escalar(x) = x isa Union{Number,AbstractString,AbstractChar,Symbol,Nothing,Missing}
 
 un_id(x) = (ids = T[].ids; get!(ids, objectid(x), length(ids) + 1))
@@ -76,14 +81,14 @@ function describe(x, prof = 0)
     if x isa AbstractVector
         n = length(x)
         xs = n > 30 ? x[1:20] : x
-        d = Dict{String,Any}("t" => nombre_tipo(x), "v" => [un_valor(e) for e in xs], "el" => sin_main(string(eltype(x))))
+        d = Dict{String,Any}("t" => nombre_tipo(x), "v" => [un_valor(e) for e in xs], "el" => sin_main(de_modulo(show, eltype(x))))
         n > 30 && (d["nv"] = n)
         x isa AbstractRange && (d["rango"] = un_valor(x))
         x isa AbstractRange || (d["id"] = un_id(x))
         return d
     end
     if x isa AbstractMatrix && length(x) <= 400
-        return Dict("t" => nombre_tipo(x), "d" => collect(size(x)), "el" => sin_main(string(eltype(x))), "id" => un_id(x),
+        return Dict("t" => nombre_tipo(x), "d" => collect(size(x)), "el" => sin_main(de_modulo(show, eltype(x))), "id" => un_id(x),
                     "v" => [un_valor(e) for e in vec(x)])
     end
     if x isa Tuple && prof < 4 && length(x) <= 30
@@ -101,7 +106,7 @@ function describe(x, prof = 0)
     # (una columna es un vector: clase.nota da ese mismo vector)
     if x isa DataFrames.DataFrame && DataFrames.nrow(x) <= 30 && DataFrames.ncol(x) <= 12
         return Dict{String,Any}("t" => "DataFrame", "df" => true, "id" => un_id(x), "cols" => names(x),
-                                "tipos" => [sin_main(string(eltype(c))) for c in DataFrames.eachcol(x)],
+                                "tipos" => [sin_main(de_modulo(show, eltype(c))) for c in DataFrames.eachcol(x)],
                                 "cid" => [un_id(c) for c in DataFrames.eachcol(x)],
                                 "v" => [[un_valor(e) for e in c] for c in DataFrames.eachcol(x)])
     end
@@ -113,7 +118,7 @@ function describe(x, prof = 0)
         ismutable(x) && (d["mutable"] = true; d["id"] = un_id(x))
         return d
     end
-    Dict{String,Any}("t" => nombre_tipo(x), "r" => sin_main(sprint(show, MIME"text/plain"(), x; context = (:limit => true, :displaysize => (24, 80)))))
+    Dict{String,Any}("t" => nombre_tipo(x), "r" => sin_main(sprint(show, MIME"text/plain"(), x; context = (:limit => true, :displaysize => (24, 80), :module => T[].modulo))))
 end
 
 function corto(x)
@@ -227,10 +232,10 @@ end
 const REPL_LIMITE = Union{AbstractDict, Base.KeySet, Base.ValueIterator}
 function muestra(v)
     if v isa REPL_LIMITE
-        show(IOContext(stdout, :limit => true, :displaysize => (24, 80)), MIME"text/plain"(), v)
+        show(IOContext(stdout, :limit => true, :displaysize => (24, 80), :module => T[].modulo), MIME"text/plain"(), v)
         println(stdout)
     elseif v !== nothing
-        show(stdout, MIME"text/plain"(), v)
+        show(contexto(stdout), MIME"text/plain"(), v)
         println(stdout)
     end
     nothing
@@ -469,7 +474,7 @@ function traza(codigo::AbstractString, config::AbstractDict)
                     Core.eval(st.modulo, REPL.softscope(reescribe(a, linea, 0)))
                 end
             catch err
-                error_txt = sin_main(replace(Base.invokelatest(sprint, showerror, err isa LoadError ? err.error : err), "`Main.Main`" => "`Main`"))
+                error_txt = sin_main(replace(Base.invokelatest(sprint, showerror, err isa LoadError ? err.error : err; context = :module => st.modulo), "`Main.Main`" => "`Main`"))
                 # la lista de «Closest candidates» de un MethodError no cabe en el visualizador
                 error_txt = strip(first(split(error_txt, "\n\nClosest candidates")))
                 # desde aquí, como en el REPL, hay que mirar la «edad del mundo» más reciente: las variables que

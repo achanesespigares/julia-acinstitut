@@ -9,6 +9,7 @@ import * as DC from "./dict.mjs";
 import * as MX from "./matrices.mjs";
 import * as TP from "./tipos.mjs";
 import * as TB from "./tablas.mjs";
+import * as AL from "./algebra.mjs";
 import { ErrorJulia, NoSoportado, I, F, B, S, Ch, NADA, FALTA, errorMetodo, aNum, tipo, repr } from "./valores.mjs";
 
 const T = nombre => ({ T: "Tipo", nombre });
@@ -21,7 +22,7 @@ export const TIPOS = {
 export const CONOCIDAS = new Set(("big BigInt BigFloat Float32 Int32 Int8 UInt8 UInt Complex complex im rand randn seed! Random mean median std var " +
   "Set lpad rpad " +
   "chomp reduce foldl foldr mapreduce accumulate cumsum cumprod diff unique sortperm argmax argmin extrema " +
-  "Matrix Array axes dot cross norm inv det LinearAlgebra Statistics plot println_ " +
+  "Matrix Array axes LinearAlgebra Statistics plot println_ " +
   "struct mutable abstract typeof_ isa eltype convert promote sizeof summarysize objectid ismutable deepcopy view @view @views similar " +
   "ifelse iterate Iterators sum! maximum! push !== === try catch error throw rethrow DomainError ArgumentError " +
   "time @time @elapsed @btime sleep open read write readline readlines eachline isfile").split(" "));
@@ -712,11 +713,13 @@ export function crearPrimitivas(prog) {
   MX.operacionesDeMatrices(P, fn, prog);
   TP.tiposPropios(P, fn);
   TB.funcionesDeTablas(P, fn, prog);
+  AL.algebraLineal(P, fn);
   const tabla = new Map(Object.entries(fn).map(([k, f]) => [k, { T: "Primitiva", nombre: k, f }]));
   const constantes = { π: V.PI, pi: V.PI, ℯ: V.E, Inf: F(Infinity), NaN: F(NaN), nothing: NADA, missing: FALTA, true: B(true), false: B(false) };
   // los paquetes que el programa ha cargado con using (DataFrames, Statistics)
   const cargados = new Map();
-  P.carga = nombre => { if (!P.paquetes[nombre]) return false; cargados.set(nombre, new Map(Object.entries(P.paquetes[nombre]).map(([k, f]) => [k, { T: "Primitiva", nombre: k, f }]))); return true; };
+  P.carga = nombre => { if (!P.paquetes[nombre]) return false; cargados.set(nombre, new Map(Object.entries(P.paquetes[nombre]).map(([k, f]) => [k, typeof f === "function" ? { T: "Primitiva", nombre: k, f } : f]))); return true; };
+  P.cargado = nombre => cargados.has(nombre);
   const dePaquete = n => { for (const t of cargados.values()) if (t.has(n)) return t.get(n); return null; };
   P.tiene = n => tabla.has(n) || n in constantes || !!dePaquete(n);
   P.funcion = n => n in constantes ? constantes[n] : tabla.get(n) || dePaquete(n);

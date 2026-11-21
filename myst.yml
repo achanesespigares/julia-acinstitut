@@ -32,6 +32,9 @@ project:
         - file: capitulos/08-matrices.md
         - file: capitulos/09-tipos-propios.md
         - file: capitulos/10-tablas.md
+    - title: Parte III · Cálculo científico
+      children:
+        - file: capitulos/11-algebra-lineal.md
 site:
   template: book-theme
   options:

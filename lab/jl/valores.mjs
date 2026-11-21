@@ -57,6 +57,7 @@ export function tipo(x) {
     case "Pair": return "Pair{" + tipo(x.a) + ", " + tipo(x.b) + "}";
     case "Dict": return "Dict{" + x.K + ", " + x.V + "}";
     case "Matrix": return GANCHOS.tipoM(x);
+    case "Uniforme": return "UniformScaling{" + tipo(x.l) + "}";
     case "Struct": return x.tipo;
     case "DataFrame": return "DataFrame";
     case "FilaDF": return "DataFrameRow{DataFrame, DataFrames.Index}";
@@ -178,6 +179,8 @@ function caracter(c) {
 const decimalesRango = x => x.els.length ? decimal(x.start) + ":" + decimal(x.step) + ":" + decimal(x.els[x.els.length - 1]) : decimal(x.start) + ":" + decimal(x.step) + ":" + decimal(x.start - x.step);
 
 // repr(x): lo que escribe Julia dentro de una expresión, de una tabla o de print
+// dentro de un contenedor de fracciones (:typeinfo Rational), Julia 1.13 escribe 2//1 como 2
+export const racTI = x => x.d === 1n ? x.n.toString() : x.n + "//" + x.d;
 export function repr(x, dentro = false) {
   switch (x.T) {
     case "Int64": return x.v.toString();
@@ -196,13 +199,15 @@ export function repr(x, dentro = false) {
     case "Vector": case "BitVector": {
       const bools = x.T === "BitVector" || x.el === "Bool";
       const pref = bools ? "Bool" : ["Any", "SubString{String}", "AbstractString"].includes(x.el) || !x.a.length ? x.el : "";
-      return pref + "[" + x.a.map(e => bools ? (e.v ? "1" : "0") : repr(e, true)).join(", ") + "]";
+      const fr = x.el === "Rational{Int64}";
+      return pref + "[" + x.a.map(e => bools ? (e.v ? "1" : "0") : fr && e.T === "Rational" ? racTI(e) : repr(e, true)).join(", ") + "]";
     }
     case "Tuple": return "(" + x.a.map(e => repr(e, true)).join(", ") + (x.a.length === 1 ? "," : "") + ")";
     case "Funcion": case "Primitiva": return x.nombre;
     case "Tipo": return x.nombre;
     case "Pair": return repr(x.a, true) + " => " + repr(x.b, true);
     case "Matrix": return GANCHOS.reprM(x);
+    case "Uniforme": return "UniformScaling{" + tipo(x.l) + "}(" + repr(x.l) + ")";
     case "Struct": return x.tipo + "(" + x.a.map(e => repr(e)).join(", ") + ")";
     case "DataFrame": case "FilaDF": case "GrupoDF": return GANCHOS.muestraDF(x);      // show de un tipo propio: Alumna("Ana", 2, 9.0)
     case "Dict": {
@@ -274,6 +279,7 @@ export function muestra(x) {
   if (x.T === "Char") return caracterLargo(x.v);
   if (x.T === "Dict") return muestraDict(x);
   if (x.T === "Matrix") return GANCHOS.muestraM(x);
+  if (x.T === "Uniforme") return tipo(x) + "\n" + repr(x.l) + "*I";
   if (x.T === "DataFrame" || x.T === "FilaDF" || x.T === "GrupoDF") return GANCHOS.muestraDF(x);
   if (x.T === "Claves") return muestraClaves(x);
   if (x.T === "Vector" || x.T === "BitVector") {
@@ -290,14 +296,14 @@ export function muestra(x) {
 }
 // Julia alinea las columnas de números por la coma decimal: la parte entera a la derecha y el resto detrás
 function alinea(e, el) {
-  const s = el === "Any" ? repr(e, true) : repr(e, true);
+  const s = el === "Rational{Int64}" && e.T === "Rational" ? racTI(e) : repr(e, true);
   if (e.T === "Float64") {
     const k = s.search(/[.e]/);
     if (k > 0 && /[0-9]/.test(s[k - 1])) return [s.slice(0, k), s.slice(k)];
     return [s, ""];
   }
   if (e.T === "Int64" || e.T === "Bool") return [s, ""];
-  if (e.T === "Rational") { const k = s.indexOf("//"); return [s.slice(0, k), s.slice(k)]; }
+  if (e.T === "Rational") { const k = s.indexOf("//"); return k < 0 ? [s, ""] : [s.slice(0, k + 1), s.slice(k + 1)]; }      // alignment de Julia: hasta la primera /
   if (e.T === "Pair") return [repr(e.a, true), " => " + repr(e.b, true)];
   return ["", s];
 }

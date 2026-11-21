@@ -279,6 +279,7 @@ const EJEMPLOS = [
   { nombre: "Una matriz", codigo: "notas = [9.0 6.5 7.0; 7.5 3.0 8.5; 10.0 8.0 9.5]\nbiel = notas[2, 3]\nnotas[:, 3] .+= 0.5\npor_examen = sum(notas; dims=1)\npesos = [0.25, 0.25, 0.5]\nfinales = notas * pesos\nv = vec(notas)\nnotas[4, 1]" },
   { nombre: "Un tipo propio", codigo: "mutable struct Ficha\n    nombre::String\n    faltas::Int\nend\nbiel = Ficha(\"Biel\", 0)\nbiel.faltas += 1\ncopia = biel\ncopia.faltas = 5\nbiel\nresumen(f::Ficha) = f.nombre * \": \" * string(f.faltas) * \" faltas\"\nr = resumen(biel)\nresumen(\"Biel\")" },
   { nombre: "Una tabla de datos", codigo: "using DataFrames, Statistics\nclase = DataFrame(nombre = [\"Ana\", \"Biel\", \"Carla\", \"Dani\"],\n                  curso = [2, 1, 2, 1],\n                  nota = [9.0, 4.5, 7.5, 6.0])\naprobados = clase[clase.nota .>= 5, :]\nranking = sort(clase, :nota, rev = true)\npor_curso = combine(groupby(clase, :curso), :nota => mean => :media)\nclase.aprobada = clase.nota .>= 5\nclase\nclase.edad" },
+  { nombre: "Un sistema de ecuaciones", codigo: "using LinearAlgebra\nA = [2 1; 4 3]\nb = [5, 11]\nx = A \\ b\nd = det(A)\nF = [2//1 1; 4 3]\nFinv = inv(F)\nF * Finv == I\nB = [2 4; 1 2]\nB \\ [1, 2]" },
   { nombre: "Un bucle que suma", codigo: "notas = [9.0, 6.5, 4.0, 7.5]\ntotal = 0.0\nfor i in eachindex(notas)\n    if notas[i] >= 5\n        total += notas[i]\n    end\nend\ntotal", tabla: "i, notas[i], total" },
   { nombre: "Una función", codigo: "function media(v)\n    s = 0.0\n    for x in v\n        s += x\n    end\n    return s / length(v)\nend\n\nm = media([2, 4, 9])\nprintln(\"La media es \", m)" },
   { nombre: "b = a no copia", codigo: "a = [1, 2, 3]\nb = a\nb[1] = 100\na\nc = copy(a)\nc[1] = 0\na" },
@@ -427,7 +428,7 @@ function dibujaTraza(el, C, D) {
     if (v.rango) return "un rango, " + code(v.rango) + " (" + code(corta(v.t)) + "): " + longitud(v) + (longitud(v) === 1 ? " número" : " números") + " seguidos que Julia no guarda uno a uno, sino que calcula cuando se le piden";
     if (v.d) {
       const tam = v.d[0] + (v.d[0] === 1 ? " fila" : " filas") + " y " + v.d[1] + (v.d[1] === 1 ? " columna" : " columnas");
-      if (/^LinearAlgebra\.(Adjoint|Transpose)/.test(v.t)) return "una <b>vista</b> traspuesta de " + tam + " (" + code(v.t) + "): no copia nada, lee las casillas de la original cambiando filas por columnas";
+      if (/^(LinearAlgebra\.)?(Adjoint|Transpose)\{/.test(v.t)) return "una <b>vista</b> traspuesta de " + tam + " (" + code(v.t) + "): no copia nada, lee las casillas de la original cambiando filas por columnas";
       if (v.t === "BitMatrix") return "una matriz de " + code("true") + " y " + code("false") + " de " + tam + " (" + code(v.t) + "): una <b>máscara</b>";
       return "una matriz de " + tam + " (" + code(v.t) + ")";
     }
@@ -438,6 +439,7 @@ function dibujaTraza(el, C, D) {
     if (v.struct) return "un valor del tipo propio " + code(v.t) + ", con " + v.el.length + (v.el.length === 1 ? " campo" : " campos") + ": " + v.el.map(e => code(e.nombre)).join(", ") + (v.mutable ? ". Es <b>mutable</b>: sus campos se pueden cambiar" : "");
     if (v.t === "DataType") return "un tipo, " + code(v.r) + ": no es un dato, sino el molde con el que se hacen los datos de ese tipo";
     if (v.tupla && v.el.length && v.el.every(e => e.nombre)) return "una tupla con nombre, con " + v.el.length + (v.el.length === 1 ? " campo" : " campos") + ": " + v.el.map(e => code(e.nombre)).join(", ");
+    if (/^(LinearAlgebra\.)?UniformScaling\{/.test(v.t)) return "la identidad multiplicada por un número (" + code(v.t) + "): una matriz sin tamaño fijo, con ese número en la diagonal y ceros fuera, que toma el tamaño de la matriz con la que opera";
     if (v.tupla) return "una tupla de " + v.el.length + (v.el.length === 1 ? " elemento" : " elementos") + " (" + code(v.t) + ")";
     return "un valor de tipo " + code(v.t);
   }
@@ -474,7 +476,7 @@ function dibujaTraza(el, C, D) {
     { const lt = (L[p.linea - 1] || "").trim();
       const us = lt.match(/^using\s+(.+)$/);
       if (us) {
-        const ps = us[1].split(",").map(x => x.trim()), que = { DataFrames: "DataFrame, groupby, combine, nrow…", Statistics: "mean, median…" };
+        const ps = us[1].split(",").map(x => x.trim()), que = { DataFrames: "DataFrame, groupby, combine, nrow…", Statistics: "mean, median…", LinearAlgebra: "det, dot, norm, la identidad I…" };
         return (ps.length > 1 ? "Se cargan los paquetes " + ps.map(code).join(" y ") : "Se carga el paquete " + code(ps[0])) + ". Desde esta línea existen sus funciones (" + ps.map(x => que[x] || "").filter(Boolean).join("; ") + "), que Julia no trae de serie.";
       }
       if (/^break\b/.test(lt)) return "Se ejecuta <code>break</code>: Julia sale del bucle en este mismo momento, sin terminar la vuelta.";
@@ -551,7 +553,17 @@ function dibujaTraza(el, C, D) {
             " Es solo el molde: todavía no hay ningún valor de este tipo. Se crean llamando a " + code(n + "(…)") + ", con un valor para cada campo.");
         continue;
       }
-      if (!a) { frases.push("Se crea " + code(n) + ", " + quees(b) + "." + (b.local && !mp ? " Es una variable local del bucle." : "")); continue; }
+      if (!a) {
+        // álgebra lineal (capítulo 11): qué es lo que se acaba de calcular
+        const lt = L[p.linea - 1] || "", sis = lt.match(/^\s*\w+\s*=\s*([\w.]+)\s*\\\s*(.+?)\s*$/);
+        let extra = "";
+        if (sis) extra = " Es la <b>solución del sistema</b>: lo que, multiplicado por " + code(sis[1]) + ", da " + code(sis[2]) + ".";
+        else if (/=\s*inv\(/.test(lt)) extra = " Es la <b>inversa</b>: multiplicada por la matriz del paréntesis, da la identidad.";
+        else if (/=\s*det\(/.test(lt)) extra = b.e && /^-?0(\.0|\/\/1)?$/.test(b.v[0]) ? " Es el <b>determinante</b>, y vale 0: un sistema con esta matriz no tiene una única solución." : " Es el <b>determinante</b>: como no es 0, un sistema con esta matriz tiene una única solución.";
+        else if (/=\s*dot\(/.test(lt) || /'\s*\*/.test(lt)) extra = " Es el <b>producto escalar</b>: cada casilla por la de la misma posición, y todo sumado.";
+        else if (/=\s*norm\(/.test(lt)) extra = " Es la <b>norma</b>: la longitud del vector, la raíz cuadrada de la suma de los cuadrados.";
+        frases.push("Se crea " + code(n) + ", " + quees(b) + "." + extra + (b.local && !mp ? " Es una variable local del bucle." : "")); continue;
+      }
       if (b.id && a.id === b.id && !igual(a, b) && hechos.some(m => ahora[m] && ahora[m].id === b.id)) {
         frases.push("Y " + code(n) + " también cambia, porque es " + (b.d ? "la misma matriz" : b.dict ? "el mismo diccionario" : b.struct ? "el mismo objeto" : "el mismo vector") + " que " + code(hechos.find(m => ahora[m] && ahora[m].id === b.id)) + "."); hechos.push(n); continue;
       }
@@ -647,8 +659,9 @@ function dibujaTraza(el, C, D) {
       const linea = (L[p.linea - 1] || "").trim();
       const muestra1 = nueva.length === 1 ? code(nueva[0]) : "varias líneas";
       const esTabla = /^(\d+×\d+ DataFrame|DataFrameRow)$/.test(nueva[0]);
+      const esUniforme = nueva.length === 2 && /^UniformScaling\{/.test(nueva[0]);
       const esVector = nueva.length > 1 && /^\d+-element/.test(nueva[0]), esMatriz = nueva.length > 1 && /^\d+×\d+ /.test(nueva[0]), esVista = / view\(/.test(nueva[0]);
-      const cola = esTabla ? (nueva.length > 1 ? ": " + (nueva[0] === "DataFrameRow" ? "una fila de la tabla" : "la tabla entera") + ", con una línea de título, los nombres y los tipos de las columnas, y una fila por línea con su número." : ": " + muestra1 + ".") : esVista ? ": una <b>vista</b> (" + code("view") + ") de las casillas que han cambiado, con una cabecera que dice de dónde salen." :
+      const cola = esUniforme ? ": la identidad, que Julia escribe " + code(nueva[1]) + " porque no tiene un tamaño fijo: toma el de la matriz con la que opera." : esTabla ? (nueva.length > 1 ? ": " + (nueva[0] === "DataFrameRow" ? "una fila de la tabla" : "la tabla entera") + ", con una línea de título, los nombres y los tipos de las columnas, y una fila por línea con su número." : ": " + muestra1 + ".") : esVista ? ": una <b>vista</b> (" + code("view") + ") de las casillas que han cambiado, con una cabecera que dice de dónde salen." :
         esMatriz ? ": la matriz entera, con una línea de cabecera (filas × columnas y su tipo) y una fila de la matriz por línea." :
         esVector ? ": el vector entero, con una línea de cabecera (su tamaño y su tipo) y una casilla por línea." : ": " + muestra1 + ".";
       const bang = (linea.match(/^(\w+!)\(/) || [])[1];
