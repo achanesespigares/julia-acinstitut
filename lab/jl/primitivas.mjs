@@ -32,7 +32,7 @@ for (const n of ER.NOMBRES) TIPOS[n] = T(n);
 // Nombres de Julia que existen pero que el laboratorio aún no sabe ejecutar
 export const CONOCIDAS = new Set(("big BigInt BigFloat Float32 Int32 Int8 UInt8 UInt Complex complex im mean median " +
   "Set lpad rpad " +
-  "chomp reduce foldl foldr mapreduce accumulate cumsum cumprod diff unique sortperm extrema " +
+  "chomp reduce foldl foldr mapreduce accumulate cumsum cumprod diff sortperm extrema " +
   "Matrix Array axes LinearAlgebra Statistics println_ " +
   "struct mutable abstract typeof_ isa eltype convert promote sizeof summarysize objectid similar " +
   "ifelse iterate Iterators sum! maximum! push !== === " +
@@ -336,6 +336,7 @@ export function crearPrimitivas(prog) {
     if (res.some(MX.esMatriz)) throw new NoSoportado("un vector de matrices");
     const tipos = [...new Set(res.map(r => r.T === "Rational" ? "Rational{Int64}" : r.T === "Vector" || r.T === "String" || r.T === "Pair" || r.T === "Struct" ? tipo(r) : r.T))];
     if (res.some(r => r.T === "Struct")) return V.vec(V.promueve(tipos), res);
+    if (res.every(r => r.T === "Vector")) return P.vectorDeVectores(res);
     if (tipos.length > 1 && tipos.every(t => t === "String" || t === "SubString{String}")) return V.vec("AbstractString", res);
     if (tipos.length === 1) {
       if (tipos[0] === "Bool" && bits) return V.bitvec(res);
@@ -349,11 +350,21 @@ export function crearPrimitivas(prog) {
   P.vectorLiteral = vals => {
     if (!vals.length) return V.vec("Any", []);
     if (vals.some(v => MX.esMatriz(v))) throw new NoSoportado("un vector de matrices");
-    if (vals.some(v => V.esVector(v) || v.T === "Tuple")) throw new NoSoportado("vectores de vectores (o concatenar con [a, b])");
+    if (vals.some(v => V.esVector(v) || v.T === "Tuple")) return P.vectorDeVectores(vals);
     const tipos = vals.map(v => v.T === "Rational" ? "Rational{Int64}" : v.T === "String" || v.T === "Pair" || v.T === "Struct" ? tipo(v) : v.T);
     if (tipos.some(t => t === "Nothing" || t === "Missing") && new Set(tipos).size > 1) throw new NoSoportado("vectores con nothing o missing mezclados (Union)");
     const el = V.promueve(tipos);
     return V.vec(el, vals.map(v => V.convierte(v, el)));
+  };
+  // capítulo 24: un vector de vectores, [[2, 4], [3], Int64[]]. Guarda los mismos vectores, sin copiarlos (como vect en Julia).
+  // Solo si todos son del mismo tipo (si no, Julia los convierte y los copia) y de enteros, símbolos o textos.
+  const INTERIOR = ["Int64", "Symbol", "String"];
+  P.vectorDeVectores = vals => {
+    if (!vals.every(v => v.T === "Vector" && !V.esRango(v) && !v.vistaDe && INTERIOR.includes(v.el)))
+      throw new NoSoportado("este vector de vectores (solo de vectores de enteros, símbolos o textos)");
+    const tipos = new Set(vals.map(tipo));
+    if (tipos.size > 1) throw new NoSoportado("un vector de vectores de tipos distintos (Julia los convierte y los copia)");
+    return V.vec(tipo(vals[0]), [...vals]);
   };
   P.vectorTipado = (el, vals) => {
     if (["Real", "Number", "Integer", "Signed", "AbstractFloat"].includes(el)) {         // Real[1, 2.5]: cada uno con su tipo
@@ -361,7 +372,7 @@ export function crearPrimitivas(prog) {
       if (vals.some(v => !["Int64", "Float64", "Bool", "Rational"].includes(v.T))) throw new NoSoportado("un vector de " + el + " con estos valores");
       return V.vec(el, [...vals]);
     }
-    if (!["Int64", "Float64", "String", "Bool", "Char", "Any", "SubString{String}", "AbstractString"].includes(el) && !P.esTipoPropio(el)) throw new NoSoportado("vectores de " + el);
+    if (!["Int64", "Float64", "String", "Bool", "Char", "Any", "SubString{String}", "AbstractString", "Symbol"].includes(el) && !P.esTipoPropio(el) && !/^Vector\{(Int64|Symbol|String)\}$/.test(el)) throw new NoSoportado("vectores de " + el);
     return V.vec(el, vals.map(v => V.convierte(v, el)));
   };
   P.rango = (a, s, b) => {
@@ -481,6 +492,7 @@ export function crearPrimitivas(prog) {
       case "AbstractArray": return MX.esMatriz(v) || V.esVector(v);
       case "IO": return v.T === "IO";
       case "VersionNumber": return v.T === "VersionNumber";
+      case "Symbol": case "Expr": return v.T === tt;
     }
     if (tt === "Exception" || ER.NOMBRES.includes(tt)) return (v.T === "Excepcion" || v.T === "Struct") && P.esSubtipo(v.tipo, tt);
     if (/^Matrix\{(\w+)\}$/.test(tt)) return MX.esMatriz(v) && !v.vista && !v.bit && v.el === tt.slice(7, -1);
@@ -521,7 +533,9 @@ export function crearPrimitivas(prog) {
     if (x.T === "Primitiva") throw new NoSoportado("mostrar la función " + x.nombre);
     if (x.T === "Tipo") {
       const m = /^Vector\{(.+)\}$/.exec(x.nombre);
-      if (m) return x.nombre + " (alias for Array{" + m[1] + ", 1})";
+      // Julia escribe también los Vector de dentro sin el alias: Vector{Vector{Int64}} (alias for Array{Array{Int64, 1}, 1})
+      const sinAlias = t => { let r = t, a; do { a = r; r = r.replace(/Vector\{([^{}]+)\}/g, "Array{$1, 1}"); } while (r !== a); return r; };
+      if (m) return x.nombre + " (alias for Array{" + sinAlias(m[1]) + ", 1})";
       if (x.nombre === "BitVector") return "BitVector (alias for BitArray{1})";
       const mm = /^Matrix\{(.+)\}$/.exec(x.nombre);
       if (mm) return x.nombre + " (alias for Array{" + mm[1] + ", 2})";
@@ -886,6 +900,15 @@ export function crearPrimitivas(prog) {
     const els = args.length === 2 ? P.itera(args[1]).map(e => prog.aplica(args[0], [e], new Map())) : P.itera(args[0]);
     if (!els.every(e => e.T === "Bool")) throw new ErrorJulia("TypeError: non-boolean (" + tipo(els.find(e => e.T !== "Bool")) + ") used in boolean context");
     return I(els.filter(e => e.v).length);
+  };
+  // unique(v): los valores sin repetir, en el orden en que salen por primera vez (con isequal, como Julia)
+  fn.unique = (args) => {
+    if (args.length !== 1) throw new NoSoportado("unique con una función");
+    const x = args[0];
+    if (x.T !== "Vector" || !["Int64", "Symbol", "String", "Char", "Bool"].includes(x.el)) throw new NoSoportado("unique de " + tipo(x));
+    const vistos = new Set(), res = [];
+    for (const e of V.elementos(x)) { const k = e.T + ":" + String(e.v); if (!vistos.has(k)) { vistos.add(k); res.push(e); } }
+    return V.vec(x.el, res);
   };
   fn.findall = (args) => {
     if (MX.esMatriz(args[args.length - 1])) throw new NoSoportado("findall en una matriz (Julia da CartesianIndex)");

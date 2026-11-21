@@ -47,7 +47,7 @@ mutable struct Estado
     orden::Vector{Symbol}
     pila::Vector{Any}
     nmarcos::Int
-    vueltas::Dict{Int,Int}
+    vueltas::Dict{Tuple{Int,Int},Int}  # (marco, línea): cada llamada cuenta las vueltas de sus bucles (una función recursiva tiene varias a la vez)
     actual::Int
     locales::Dict{Symbol,Any}      # las variables locales de un bucle del programa principal
     columnas::Vector{String}
@@ -404,18 +404,21 @@ function muestra(v)
     end
     nothing
 end
+clave_vuelta(st, l) = (isempty(st.pila) ? 0 : st.pila[end][:id], l)
 function cabecera(l, locs)
     st = T[]
-    st.vueltas[l] = get(st.vueltas, l, 0) + 1
+    k = clave_vuelta(st, l)
+    st.vueltas[k] = get(st.vueltas, k, 0) + 1
     pon_locales(locs)
-    anota(Dict{String,Any}("linea" => l, "tipo" => "vuelta", "vuelta" => st.vueltas[l]))
+    anota(Dict{String,Any}("linea" => l, "tipo" => "vuelta", "vuelta" => st.vueltas[k]))
 end
 fin_vuelta(l, locs) = (pon_locales(locs); T[].por_linea || fila(locs); nothing)
 function fin_bucle(l, locs)
     st = T[]
     pon_locales(locs)
-    anota(Dict{String,Any}("linea" => l, "tipo" => "fin", "vuelta" => get(st.vueltas, l, 0)))
-    delete!(st.vueltas, l)
+    k = clave_vuelta(st, l)
+    anota(Dict{String,Any}("linea" => l, "tipo" => "fin", "vuelta" => get(st.vueltas, k, 0)))
+    delete!(st.vueltas, k)
     nothing
 end
 
@@ -763,7 +766,7 @@ end
 function traza(codigo::AbstractString, config::AbstractDict; svg = nothing)
     salida = tempname()
     touch(salida)
-    st = Estado(Module(:Main), Any[], Any[], Symbol[], Any[], 0, Dict{Int,Int}(), 0, Dict{Symbol,Any}(),
+    st = Estado(Module(:Main), Any[], Any[], Symbol[], Any[], 0, Dict{Tuple{Int,Int},Int}(), 0, Dict{Symbol,Any}(),
                 String.(get(config, "columnas", String[])), get(config, "fila_en", "") == "cada_linea",
                 String.(get(config, "ocultar", String[])), salida, Dict{Symbol,Vector{String}}(), IdDict{Any,Int}(),
                 nothing, svg, 0, nothing, Int[], nothing)

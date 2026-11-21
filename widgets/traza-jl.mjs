@@ -436,6 +436,7 @@ const EJEMPLOS = [
   { nombre: "Un polinomio hecho código", codigo: "coefs = [1, -3, 2]\np = :(0)\nfor (k, c) in enumerate(coefs)\n    p = :($p + $c * x ^ $(k - 1))\nend\np\nx = 2\neval(p)\nx = 0.5\neval(p)", tabla: "k, c, p" },
   { nombre: "Una nota que no vale", codigo: "function nota(t)\n    n = tryparse(Float64, t)\n    n === nothing && throw(ArgumentError(\"«$t» no es un número\"))\n    0 <= n <= 10 || throw(DomainError(n, \"la nota va de 0 a 10\"))\n    return n\nend\nfor t in [\"8.5\", \"once\", \"12\", \"6\"]\n    try\n        println(t, \" → \", nota(t))\n    catch e\n        println(t, \" → \", typeof(e))\n    end\nend\nnota(\"diez\")" },
   { nombre: "Un módulo propio", codigo: "module Tienda\nexport precio\nconst IVA = 0.21\nprecio(base) = round(base * (1 + IVA); digits = 2)\nend\nusing .Tienda\nprecios = precio.([10.0, 4.5, 20.0])\nTienda.IVA\nv\"1.10.0\" > v\"1.9.0\"" },
+  { nombre: "Un cuaderno que reacciona", codigo: "function afectadas(i, despues, orden = Int[])\n    for j in despues[i]\n        if !(j in orden)\n            afectadas(j, despues, orden)\n        end\n    end\n    pushfirst!(orden, i)\n    return orden\nend\nceldas = [\"precio = 20.0\", \"iva = 0.21 * precio\", \"total = precio + iva\"]\ndespues = [[2, 3], [3], Int[]]\nfor c in celdas\n    eval(Meta.parse(c))\nend\n(precio, iva, total)\nceldas[1] = \"precio = 50.0\"\nfor i in afectadas(1, despues)\n    eval(Meta.parse(celdas[i]))\nend\n(precio, iva, total)" },
   { nombre: "Una vista que trabaja", codigo: "function aprueba!(v)\n    for i in eachindex(v)\n        v[i] = max(v[i], 5)\n    end\n    return v\nend\nnotas = [3, 8, 4, 9, 2, 7]\ngrupo_a = view(notas, 1:3)\naprueba!(grupo_a)\nnotas\ncopia = notas[4:6]\naprueba!(copia)\nnotas" },
   { nombre: "Contar los pasos", codigo: "v = [3, 8, 15, 21, 30, 42, 57, 64, 77, 88]\nx = 64\nizq = 1\nder = length(v)\npasos = 0\nwhile izq <= der\n    pasos += 1\n    m = (izq + der) ÷ 2\n    if v[m] == x\n        break\n    elseif v[m] < x\n        izq = m + 1\n    else\n        der = m - 1\n    end\nend\npasos", tabla: "pasos, izq, m, der" },
   { nombre: "Un bucle que suma", codigo: "notas = [9.0, 6.5, 4.0, 7.5]\ntotal = 0.0\nfor i in eachindex(notas)\n    if notas[i] >= 5\n        total += notas[i]\n    end\nend\ntotal", tabla: "i, notas[i], total" },
@@ -572,7 +573,7 @@ function dibujaTraza(el, C, D) {
   const longitud = v => v && v.df ? (v.v.length ? v.v[0].length : 0) : v && v.v ? (v.nv || v.v.length) : 0;
   // las variables de un paso, en el orden en que aparecieron
   const nombres = (est, orden) => (orden || Object.keys(est)).filter(n => est[n] && !ocultas.has(n));
-  const muestra = v => !v ? "" : v.dict ? (v.k.length ? "Dict(" + v.k.map((k, i) => k + " => " + v.v[i]).join(", ") + ")" : "un diccionario vacío") : v.struct ? v.t + "(" + v.el.map(e => muestra(e.v)).join(", ") + ")" : v.e ? v.v[0] : v.rango ? v.rango : v.v ? "[" + v.v.join(", ") + (v.nv ? ", …" : "") + "]" : v.t === "function" ? v.r : v.r || v.t;
+  const muestra = v => !v ? "" : v.dict ? (v.k.length ? "Dict(" + v.k.map((k, i) => k + " => " + v.v[i]).join(", ") + ")" : "un diccionario vacío") : v.struct ? v.t + "(" + v.el.map(e => muestra(e.v)).join(", ") + ")" : v.e ? v.v[0] : v.rango ? v.rango : v.v && !v.v.length && !v.nv && /^Vector\{.+\}$/.test(v.t || "") ? v.t.slice(7, -1) + "[]" : v.v ? "[" + v.v.join(", ") + (v.nv ? ", …" : "") + "]" : v.t === "function" ? v.r : v.r || v.t;
   const varDelFor = l => ((L[l - 1] || "").match(/^\s*for\s+([\w,() ]+?)\s*(?:\bin\b|=|∈)\s*(.+?)\s*$/) || []);
 
   const vis = sp => sp.series.filter(s => s.primaria !== false);      // las series que se ven (no la secundaria de unas barras)
@@ -636,7 +637,7 @@ function dibujaTraza(el, C, D) {
       const e = v.expr, n = e ? e.a.length : 0;
       let s = "una expresión (" + code("Expr") + "): código guardado como dato, todavía sin ejecutar";
       if (!e) return s;
-      s += ". Su cabeza (" + code("head") + ") es " + code(":" + e.h) + " y tiene " + n + (n === 1 ? " argumento" : " argumentos") + " (" + code("args") + ")";
+      s += ". Su cabeza (" + code("head") + ") es " + code(/^[\w!]+$/.test(e.h) ? ":" + e.h : ":(" + e.h + ")") + " y tiene " + n + (n === 1 ? " argumento" : " argumentos") + " (" + code("args") + ")";
       if (e.h === "call" && e.a[0] && e.a[0].t === "Symbol") s += ": la función que se llama, " + code(e.a[0].r) + (n > 1 ? ", y " + (n === 2 ? "el dato al que se aplica" : "los " + (n - 1) + " datos a los que se aplica") : "");
       const subs = e.a.map((x, k) => [x, k]).filter(([x]) => x.a);
       if (subs.length) s += ". " + (subs.length === 1 ? "El argumento " + (subs[0][1] + 1) + " es otra expresión, " + code(subs[0][0].r) : "Los argumentos " + subs.map(([, k]) => k + 1).join(" y ") + " son otras expresiones") + ": una expresión dentro de otra, como las ramas de un árbol";
@@ -660,6 +661,7 @@ function dibujaTraza(el, C, D) {
     }
     if (v.v && !longitud(v)) return "un vector vacío (" + code(v.t) + ")";
     if (v.v && v.t === "BitVector") return "un vector de " + code("true") + " y " + code("false") + ", " + longitud(v) + (longitud(v) === 1 ? " casilla" : " casillas") + " (" + code(v.t) + "): una <b>máscara</b>";
+    if (v.v && /^Vector\{Vector\{/.test(v.t)) return "un <b>vector de vectores</b> de " + longitud(v) + (longitud(v) === 1 ? " elemento" : " elementos") + " (" + code(v.t) + "): cada casilla es otro vector";
     if (v.v) return "un vector de " + longitud(v).toLocaleString("es-ES") + (longitud(v) === 1 ? " elemento" : " elementos") + " (" + code(v.t) + ")" + (v.nv ? ". Aquí se ven los " + v.v.length + " primeros" : "");
     if (v.df && false) return "una tabla (" + code("DataFrame") + ") de " + longitud(v) + (longitud(v) === 1 ? " fila" : " filas") + " y " + v.cols.length + (v.cols.length === 1 ? " columna" : " columnas") + (v.cols.length ? ": " + v.cols.map(code).join(", ") : "");
     if (v.struct) return "un valor del tipo propio " + code(v.t) + ", con " + v.el.length + (v.el.length === 1 ? " campo" : " campos") + ": " + v.el.map(e => code(e.nombre)).join(", ") + (v.mutable ? ". Es <b>mutable</b>: sus campos se pueden cambiar" : "");
@@ -676,6 +678,20 @@ function dibujaTraza(el, C, D) {
     if (!f || f.t !== "function" || !(f.m > 1)) return "";
     const sig = ((L[p.linea - 1] || "").match(new RegExp("^\\s*(?:function\\s+)?(" + m.nombre.replace(/[!.]/g, "\\$&") + "\\(.*?\\))")) || [])[1];
     if (!sig) return "";
+    // capítulo 24: una sola definición con un argumento por defecto da dos métodos, con él y sin él
+    const reDef = new RegExp("^\\s*(?:function\\s+)?" + m.nombre.replace(/[!.]/g, "\\$&") + "\\((.*)\\)\\s*(=[^=].*)?$");
+    const defs = L.filter(l => reDef.test(l) && (/^\s*function\b/.test(l) || /\)\s*=[^=]/.test(l)));
+    const pd = defs.length === 1 && (defs[0].match(reDef)[1].match(/(\w+)\s*=\s*([^,]+)$/) || null);
+    if (pd) {
+      const llamada = ((L[m.desde - 1] || "").match(new RegExp("\\b" + m.nombre.replace(/[!.]/g, "\\$&") + "\\((.*)")) || [])[1] || "";
+      let prof = 0, comas = 0, vacia = true;
+      for (const ch of llamada) { if (ch === "(" || ch === "[") prof++; else if (ch === ")" || ch === "]") { if (prof === 0) break; prof--; } else if (ch === "," && prof === 0) comas++; else if (!/\s/.test(ch)) vacia = false; }
+      const nParams = defs[0].match(reDef)[1].split(",").length;
+      if (!vacia && comas + 1 < nParams) {
+        return " La llamada no da " + code(pd[1]) + ", así que toma su valor por defecto, " + code(pd[2].trim()) + (/\[\]$/.test(pd[2].trim()) ? ": un vector nuevo y vacío, distinto en cada llamada" : "") + ".";
+      }
+      return "";
+    }
     const ts = args.map(a => m.vars[a] && m.vars[a].t).filter(Boolean);
     // la primera vez que se elige mirando varios argumentos, se dice que eso es el despacho múltiple
     const varios = x => { const mm = x.marcos && x.marcos[x.marcos.length - 1], ff = mm && (x.estado || {})[mm.nombre]; return x.tipo === "llamada" && ff && ff.m > 1 && mm.orden.filter(a => mm.vars[a]).length > 1; };
@@ -843,6 +859,11 @@ function dibujaTraza(el, C, D) {
         (args.length ? ", con sus argumentos: " + args.map(a => code(a) + " vale " + esc(muestra(m.vars[a])) + deFuera(m.vars[a], p.estado)).join(", ") : "") +
         ". El programa salta a la función" + (m.desde && m.desde !== p.linea ? " y la línea " + m.desde + " se queda esperando el resultado." : ".") + eleccion(p, m, args) + deModulo(p, m);
     }
+    if (p.tipo === "devuelve" && /&&\s*return\b/.test(L[p.linea - 1] || "")) {
+      const izq = (L[p.linea - 1] || "").match(/^\s*(.+?)\s*&&\s*return\b/)[1];
+      return "Lo de la izquierda del <code>&&</code>, " + code(izq) + ", es <code>true</code>, así que se ejecuta lo de la derecha: el " + code("return") + ". " + code(p.funcion) + " termina ahí y devuelve " + code(p.valor) +
+        ". Su espacio en la memoria desaparece, con todas sus variables, y el programa vuelve a la línea " + p.desde + ", que usa ese resultado.";
+    }
     if (p.tipo === "devuelve")
       return code(p.funcion) + (p.valor === "nothing" ? " termina sin devolver nada útil (" + code("nothing") + ")" : " termina y devuelve " + code(p.valor)) +
         ". Su espacio en la memoria desaparece, con todas sus variables, y el programa vuelve a la línea " + p.desde + ", que usa ese resultado.";
@@ -860,6 +881,24 @@ function dibujaTraza(el, C, D) {
           : "Se salta el bloque del <code>" + (esElseif ? "elseif" : "if") + "</code>" + (/^\s*(elseif|else)\b/.test(L.slice(p.linea).join("\n").split(/\n\s*end\b/)[0].split("\n").find(x => /^\s*(elseif|else)\b/.test(x)) || "") ? " y se pasa a la rama siguiente." : "."));
     }
     const frases = [];
+    // capítulo 24: las variables que crea eval dentro de un bucle aparecen cuando termina el bucle (la edad del mundo)
+    const ltE = (L[p.linea - 1] || "").trim();
+    if (!(p.marcos && p.marcos.length) && prev && prev.estado && /\beval\(Meta\.parse\(/.test(L.join("\n"))) {
+      const creadas = nombres(p.estado, p.orden).filter(n => !prev.estado[n] && p.estado[n].t !== "function" && !p.estado[n].local);
+      if (creadas.length && !creadas.some(n => new RegExp("^" + n + "\\s*=[^=]").test(ltE)) && !/\beval\(/.test(ltE))
+        frases.push((creadas.length === 1 ? "La variable " + code(creadas[0]) + " aparece" : "Las variables " + yLista(creadas.map(code)) + " aparecen") + " ahora en la memoria. " +
+          (creadas.length === 1 ? "La creó" : "Las crearon") + " los " + code("eval") + " del bucle, pero Julia no enseña lo que crea " + code("eval") + " hasta que termina la sentencia del programa principal que lo llamó: el bucle entero (es la edad del mundo, de <i>Metaprogramación</i>).");
+    }
+    // eval(Meta.parse(celda)): ejecutar una celda del cuaderno
+    const evC = ltE.match(/^eval\(Meta\.parse\((\w+)(?:\[(\w+)\])?\)\)$/);
+    let celdaTxt = null;
+    if (evC) {
+      const vars = (p.marcos && p.marcos.length ? p.marcos[p.marcos.length - 1].vars : null) || p.estado;
+      const de = k => vars[k] || p.estado[k];
+      const x = de(evC[1]);
+      if (x && !evC[2] && x.t === "String") celdaTxt = x.v[0];
+      else if (x && evC[2] && x.v) { const i = /^\d+$/.test(evC[2]) ? +evC[2] : de(evC[2]) && +de(evC[2]).v[0]; if (i && x.v[i - 1]) celdaTxt = x.v[i - 1]; }
+    }
     // se comparan las variables del ámbito que se está ejecutando: la llamada en curso o el programa principal
     const marco = x => x && x.marcos && x.marcos.length ? x.marcos[x.marcos.length - 1] : null;
     const mp = marco(p), ma = marco(prev);
@@ -1067,6 +1106,10 @@ function dibujaTraza(el, C, D) {
         frases.push(code(n) + " gana " + nuevos.length + " elementos al final, " + nuevos.slice(0, -1).map(esc).join(", ") + " y " + esc(nuevos[nuevos.length - 1]) + ": ahora tiene " + b.v.length + " elementos.");
         hechos.push(n); continue;
       }
+      if (a.v && b.v && !a.d && !b.d && b.v.length === a.v.length + 1 && a.v.every((x, i) => x === b.v[i + 1]) && /\bpushfirst!\(/.test(L[p.linea - 1] || "")) {
+        frases.push(code(n) + " gana un elemento <b>al principio</b>, " + esc(b.v[0]) + ": ahora tiene " + b.v.length + (b.v.length === 1 ? " elemento" : " elementos") + ", " + code("[" + b.v.join(", ") + "]") + ".");
+        hechos.push(n); continue;
+      }
       if (a.v && b.v && !a.d && !b.d && b.v.length === a.v.length + 1 && a.v.every((x, i) => x === b.v[i])) {
         frases.push(code(n) + " gana un elemento al final, " + esc(b.v[b.v.length - 1]) + ": ahora tiene " + b.v.length + (b.v.length === 1 ? " elemento." : " elementos."));
         hechos.push(n); continue;
@@ -1138,6 +1181,7 @@ function dibujaTraza(el, C, D) {
       if (/^@macroexpand1?\b/.test(linea)) frases.push(code("@macroexpand") + " no ejecuta la macro: enseña el código en que se convierte la llamada, " + muestra1 + ". Lo que la macro protege con " + code("esc") + " queda tal cual: es código del que la llama. Los demás nombres llevan delante " + code("Main.") + ": la macro los busca en el programa principal, se use donde se use. Es la <b>higiene</b> de las macros.");
       else if (propia) frases.push("La macro " + code("@" + mac[1]) + " recibe el código " + code(mac[2]) + " sin calcularlo y devuelve código nuevo, que Julia ejecuta en lugar de la línea. Ese código escribe en la consola " + muestra1 + ".");
       else if (/^dump\(/.test(linea)) frases.push(code("dump") + " escribe la expresión por dentro, nivel a nivel: cada " + code("Expr") + " con su cabeza (" + code("head") + ") y sus argumentos (" + code("args") + "), y cada hoja con su tipo. Es el mismo árbol que se ve en la memoria.");
+      else if (evC) frases.push("Como la línea no es una asignación, Julia muestra lo que devuelve " + code("eval") + ": el último valor que calcula la celda, " + muestra1 + ".");
       else if (ev) frases.push(code("eval") + " ejecuta " + (evx ? "la expresión " + code(evx.r) : code(ev[1])) + " como si su código estuviera escrito aquí, en el programa principal, con los valores de ahora, y Julia muestra el resultado: " + muestra1 + ".");
       else if (/^Random\.seed!\(/.test(linea)) frases.push(code(linea) + " fija la <b>semilla</b>: desde aquí, los números «al azar» son siempre los mismos, en cualquier ordenador. Devuelve el generador de números al azar, y Julia lo muestra como " + code("TaskLocalRNG()") + ".");
       else if (/\.[-+*\/^]=/.test(linea)) frases.push("Una operación como " + code(linea.match(/\.[-+*\/^]=/)[0]) + " cambia las casillas igual que " + code(".=") + ", pero para la consola no es una asignación: Julia muestra su resultado" + cola);
@@ -1145,6 +1189,7 @@ function dibujaTraza(el, C, D) {
         frases.push(code("@test_throws") + " comprueba que " + code(ex) + " lanza un error de tipo " + code(t) + ": lo lanza, así que la prueba <b>pasa</b>. Julia escribe «Test Passed» y, debajo, el tipo del error que se lanzó (" + code("Thrown") + "). El error no detiene el programa: lo ha atrapado la prueba."); }
       else if (/^@test\s+/.test(linea)) frases.push(code("@test") + " comprueba que " + code(linea.replace(/^@test\s+/, "")) + " es <code>true</code>: lo es, así que la prueba <b>pasa</b>, y Julia escribe «Test Passed».");
       else if (/^@show\b/.test(linea)) frases.push(code("@show") + " escribe en la consola la expresión y su valor: " + muestra1 + ".");
+      else if (/^(.+?)\s*&&\s*print(ln)?\(/.test(linea)) frases.push("Se comprueba " + code(linea.match(/^(.+?)\s*&&/)[1]) + ": es <code>true</code>, así que el <code>&&</code> ejecuta lo de la derecha, y " + code("println") + " escribe en la consola " + muestra1 + ".");
       else if (/^print(ln)?\(/.test(linea)) frases.push(code(linea.match(/^print(ln)?/)[0]) + " escribe en la consola " + muestra1 + (/^println/.test(linea) ? ", y salta de línea." : "."));
       else if (linea === "VERSION") frases.push("Escribir solo " + code("VERSION") + " hace que Julia muestre su valor: es la versión de Julia que está ejecutando el programa, " + muestra1 + ". Es la del libro, y la que imita el laboratorio.");
       else if (/^[\w.!]+$/.test(linea)) frases.push("Escribir solo " + code(linea) + " hace que Julia muestre su valor en la consola" + (colaV || cola));
@@ -1189,6 +1234,11 @@ function dibujaTraza(el, C, D) {
     // condición || error("…"): si el paso no es un error, la condición era true y error no llega a ejecutarse
     const oCorto = (L[p.linea - 1] || "").match(/^\s*(.+?)\s*\|\|\s*(error|throw)\(/);
     if (!frases.length && oCorto) return "Se comprueba " + code(oCorto[1]) + ": es <code>true</code>, así que el <code>||</code> no necesita mirar lo de la derecha, y <code>" + oCorto[2] + "</code> no se ejecuta. El programa sigue.";
+    const yRet = (L[p.linea - 1] || "").match(/^\s*(.+?)\s*&&\s*(return\b.*|print(?:ln)?\(.*)$/);
+    if (!frases.length && yRet) return "Se comprueba " + code(yRet[1]) + ": es <code>false</code>, así que el <code>&&</code> no necesita mirar lo de la derecha, y " + code(yRet[2]) + " no se ejecuta. " + (/^return/.test(yRet[2]) ? "La función sigue." : "El programa sigue.");
+    const llamSuelta = ((L[p.linea - 1] || "").match(/^\s*([\w.]+!?)\(.*\)\s*$/) || [])[1];
+    if (!frases.length && llamSuelta && prev && prev.tipo === "devuelve" && prev.funcion === llamSuelta)
+      return "La llamada a " + code(llamSuelta) + " ha terminado. Lo que devuelve no se guarda en ninguna variable: lo que importaba era lo que ha hecho por el camino, en los vectores que recibe.";
     const yCorto = (L[p.linea - 1] || "").match(/^\s*(.+?)\s*&&\s*(error|throw)\(/);
     if (!frases.length && yCorto) return "Se comprueba " + code(yCorto[1]) + ": es <code>false</code>, así que el <code>&&</code> no necesita mirar lo de la derecha, y no se lanza ningún error. El programa sigue.";
     if (!frases.length && /^\s*Base\.showerror\(/.test(L[p.linea - 1] || "")) {
@@ -1204,6 +1254,11 @@ function dibujaTraza(el, C, D) {
         if (/^\s*end\b/.test(L[j] || "")) break;
       }
     }
+    if (evC && celdaTxt) {
+      const nada = !frases.length;
+      frases.unshift(code("Meta.parse") + " convierte el texto de la celda, " + code(celdaTxt) + ", en una expresión, y " + code("eval") + " la ejecuta, como si esa línea estuviera escrita aquí." +
+        (nada ? (/^\s/.test(L[p.linea - 1] || "") && !Object.keys(prev && prev.estado || {}).some(k => celdaTxt.startsWith('"' + k + " =")) ? " Lo que define todavía no se ve en la memoria: aparecerá cuando termine el bucle." : " La memoria no cambia: el valor que calcula es el mismo que ya tenía.") : ""));
+    }
     return frases.length ? frases.join(" ") : "Se ejecuta la línea " + p.linea + ".";
   }
 
@@ -1211,7 +1266,7 @@ function dibujaTraza(el, C, D) {
     const cambia = i => previo && previo.v && previo.v.length === v.v.length && previo.v[i] !== v.v[i];
     // valores largos, o de un tipo propio (Punto{Int64}(1, 2)): uno debajo de otro
     const ali = opciones.alias || [], hayAli = !!opciones.alias;      // un vector de objetos: uno debajo de otro, con sus marcas
-    if (hayAli || (!opciones.grande && (v.v.some(x => String(x).length > 24) || (v.v.length > 1 && v.v.every(x => /^\w+(\{.*\})?\(.+\)$/.test(String(x))) && v.v.join("").length > 36))))
+    if (hayAli || (!opciones.grande && (/^Vector\{Vector\{/.test(v.t || "") || (v.el === "String" && v.v.join("").length > 40) || v.v.some(x => String(x).length > 24) || (v.v.length > 1 && v.v.every(x => /^\w+(\{.*\})?\(.+\)$/.test(String(x))) && v.v.join("").length > 36))))
       return '<div class="fila-vert">' + v.v.map((x, i) => '<div class="cas-v' + (cambia(i) ? " cambia" : "") + '"><span class="idx">[' + (i + 1) + ']</span><span class="v">' + esc(x) + "</span>" +
         (ali[i] && ali[i].length ? '<span class="ali" title="la misma ficha, no una copia">↔ ' + ali[i].map(esc).join(", ") + "</span>" : "") + "</div>").join("") + "</div>";
     const marc = opciones.marcadas, org = opciones.origen;

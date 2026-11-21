@@ -321,6 +321,7 @@ function alinea(e, el) {
   if (e.T === "Int64" || e.T === "Bool") return [s, ""];
   if (e.T === "Rational") { const k = s.indexOf("//"); return k < 0 ? [s, ""] : [s.slice(0, k + 1), s.slice(k + 1)]; }      // alignment de Julia: hasta la primera /
   if (e.T === "Pair") return [repr(e.a, true), " => " + repr(e.b, true)];
+  if (e.T === "Vector" && !e.a.length) return ["", "[]"];         // dentro de un Vector{Vector{Int64}}, el vacío se escribe [] (:typeinfo)
   return ["", s];
 }
 // ── Cómo escribe el REPL un carácter ─────────────────────────────────────
@@ -367,6 +368,7 @@ export function convierte(x, el) {
   if (x.T === "Struct" && (tipo(x) === el || (GANCHOS.esSubtipo && GANCHOS.esSubtipo(tipo(x), el)))) return x;
   const t = ["String", "Pair", "Tuple", "NamedTuple", "Dict"].includes(x.T) ? tipo(x) : nombreTipo(x.T);
   if (t === el) return x;
+  if (x.T === "Vector" && tipo(x) === el) return x;          // un vector dentro de un vector de vectores: el mismo, sin copiar
   if (x.T === "String" && el === "String") return { T: "String", v: x.v };
   if (x.T === "String" && el === "SubString{String}") return { T: "String", v: x.v, sub: true };
   if (x.T === "String" && el === "AbstractString") return x;

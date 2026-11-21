@@ -231,9 +231,11 @@ class Programa {
   // eval): no deja pasos ni marcos. Una función del programa a la que llame sí los deja (llamaPrograma)
   va(l) { if (!this.mudo) this.actual = l; }
   paso(l, sc) { if (this.mudo) return; const locs = this.locs(sc); this.ponLocales(locs); if (this.porLinea) this.fila(locs); this.anota({ linea: l, tipo: "linea" }); }
-  cabecera(l, sc) { if (this.mudo) return; this.vueltas.set(l, (this.vueltas.get(l) || 0) + 1); this.ponLocales(this.locs(sc)); this.anota({ linea: l, tipo: "vuelta", vuelta: this.vueltas.get(l) }); }
+  // las vueltas se cuentan por llamada y por línea: una función recursiva tiene varios bucles en marcha a la vez (como trazar.jl)
+  claveVuelta(l) { return (this.pila.length ? this.pila[this.pila.length - 1].id : 0) + ":" + l; }
+  cabecera(l, sc) { if (this.mudo) return; const k = this.claveVuelta(l); this.vueltas.set(k, (this.vueltas.get(k) || 0) + 1); this.ponLocales(this.locs(sc)); this.anota({ linea: l, tipo: "vuelta", vuelta: this.vueltas.get(k) }); }
   finVuelta(l, sc) { if (this.mudo) return; const locs = this.locs(sc); this.ponLocales(locs); if (!this.porLinea) this.fila(locs); }
-  finBucle(l, sc) { if (this.mudo) return; this.ponLocales(this.locs(sc)); this.anota({ linea: l, tipo: "fin", vuelta: this.vueltas.get(l) || 0 }); this.vueltas.delete(l); }
+  finBucle(l, sc) { if (this.mudo) return; const k = this.claveVuelta(l); this.ponLocales(this.locs(sc)); this.anota({ linea: l, tipo: "fin", vuelta: this.vueltas.get(k) || 0 }); this.vueltas.delete(k); }
   cond(l, nodo, v, sc) {
     if (this.mudo) return;
     const locs = this.locs(sc); this.ponLocales(locs);
@@ -1048,6 +1050,8 @@ class Programa {
           if (this.prim.esTipoPropio(obj.text)) return this.prim.vectorTipado(obj.text, hijos(ind).map(c => this.valor(c, sc)));
           return this.prim.vectorTipado(TIPOS[obj.text].nombre, hijos(ind).map(c => this.valor(c, sc)));
         }
+        if (obj.type === "parametrized_type_expression" && ind.type === "vector_expression" && /^Vector\{(Int64|Symbol|String)\}$/.test(this.nombreTipo(obj)))
+          return this.prim.vectorTipado(this.nombreTipo(obj), hijos(ind).map(c => this.valor(c, sc)));     // Vector{Int64}[]: un vector de vectores (capítulo 24)
         const x = this.valor(obj, sc);
         return this.prim.indexa(x, this.indices(x, ind, sc));
       }
@@ -1167,6 +1171,12 @@ class Programa {
       const x = this.valor(a, sc);
       if (x.T !== "Bool") throw new ErrorJulia("TypeError: non-boolean (" + V.tipo(x) + ") used in boolean context");
       if (op === "&&" ? !x.v : x.v) return x;
+      if (b.type === "return_statement") {      // cond && return x (capítulo 24): sale de la función, como un if
+        if (!this.pila.length) throw new NoSoportado("return fuera de una función");
+        const e = hijos(b)[0], v = e ? this.valor(e, sc) : NADA;
+        this.sale(v);
+        throw new Retorno(v);
+      }
       const y = this.valor(b, sc);
       return y;
     }
@@ -1285,7 +1295,7 @@ class Programa {
   // el nombre de un tipo escrito en el programa: Int → Int64, Vector{Int} → Vector{Int64}
   nombreTipo(c) {
     const NOMBRES = { Int: "Int64", Int64: "Int64", Float64: "Float64", String: "String", Char: "Char", Bool: "Bool", Any: "Any", Real: "Real", Integer: "Integer", AbstractString: "AbstractString", Number: "Number",
-      Signed: "Signed", AbstractFloat: "AbstractFloat", AbstractChar: "AbstractChar", Nothing: "Nothing", Missing: "Missing", VersionNumber: "VersionNumber" };
+      Signed: "Signed", AbstractFloat: "AbstractFloat", AbstractChar: "AbstractChar", Nothing: "Nothing", Missing: "Missing", VersionNumber: "VersionNumber", Symbol: "Symbol", Expr: "Expr" };
     if (c.type === "identifier" && NOMBRES[c.text]) return NOMBRES[c.text];
     if (c.type === "identifier" && this.prim.esTipoPropio(c.text)) return c.text;
     if (c.type === "parametrized_type_expression") {
