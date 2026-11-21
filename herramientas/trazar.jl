@@ -85,6 +85,26 @@ function firma(n::Symbol)
     fs = get(T[].firmas, n, String[])
     isempty(fs) ? string(n) : join(fs, "\n")
 end
+# Una función de un módulo del programa (capítulo 23) se guarda con el nombre del módulo delante, Notas.media:
+# dos módulos pueden tener una función con el mismo nombre
+# el REPL escribe un módulo con su nombre completo, Main.Notas (con el contexto :module, Julia lo acortaría)
+nombre_modulo(m) = m === T[].modulo ? "Main" : parentmodule(m) === m ? string(nameof(m)) :
+                   nombre_modulo(parentmodule(m)) * "." * string(nameof(m))
+# Un módulo del programa (Main.Notas, capítulo 23) cuelga de Module(:Main), que a su vez cuelga del Main de
+# verdad: Julia lo escribiría Main.Main.Notas, y sin_main lo dejaría en Notas. En el REPL es Main.Notas
+function Base.show(io::IO, m::Module)
+    if isassigned(T) && m !== T[].modulo && parentmodule(m) === T[].modulo
+        print(io, "Main.", nameof(m))
+    elseif Base.is_root_module(m)
+        print(io, nameof(m))
+    else
+        Base.print_fullname(io, m)
+    end
+end
+function clave_funcion(f)
+    M = parentmodule(f)
+    M !== T[].modulo && parentmodule(M) === T[].modulo && M !== M.Main ? Symbol(nameof(M), ".", nameof(f)) : nameof(f)
+end
 
 # ── Los gráficos (capítulo 12) ───────────────────────────────────────────
 # Un gráfico se describe con lo que Plots ha calculado para dibujarlo: cada serie (su tipo, su etiqueta, sus
@@ -170,9 +190,23 @@ function describe(x, prof = 0)
         return Dict{String,Any}("t" => nombre_tipo(x), "plot" => describe_grafico(x), "id" => un_id(x))
     end
     if x isa Function
-        n = nameof(x)
         nm = length(methods(x))
-        return Dict("t" => "function", "r" => firma(n), "m" => nm)
+        return Dict("t" => "function", "r" => firma(clave_funcion(x)), "m" => nm)
+    end
+    # un módulo del programa (capítulo 23): una ficha con sus nombres, cada uno con su valor y si lo exporta
+    if x isa Module
+        d = Dict{String,Any}("t" => "Module", "r" => nombre_modulo(x))
+        if x !== T[].modulo && parentmodule(x) === T[].modulo && prof < 2
+            # en el orden en que se definen (la línea export no cuenta)
+            sin_export = replace(CODIGO[], r"(?m)^\s*export .*$" => s -> " "^length(s))
+            pos(n) = (m = findfirst(Regex("(?<![A-Za-z0-9_.])\\Q" * string(n) * "\\E(?![A-Za-z0-9_!])"), sin_export);
+                      m === nothing ? typemax(Int) : first(m))
+            ns = sort!([n for n in names(x; all = true) if n !== nameof(x) && !(n in (:eval, :include)) &&
+                        !oculto(n) && isdefined(x, n)]; by = n -> (pos(n), string(n)))
+            d["modulo"] = [Dict{String,Any}("nombre" => string(n), "v" => describe(getfield(x, n), prof + 1),
+                                            "exporta" => Base.isexported(x, n)) for n in ns]
+        end
+        return d
     end
     if es_escalar(x)
         return Dict("t" => nombre_tipo(x), "e" => true, "v" => [un_valor(x)])
@@ -234,7 +268,8 @@ function describe(x, prof = 0)
 end
 
 function corto(x)
-    x isa Function && return firma(nameof(x))
+    x isa Function && return firma(clave_funcion(x))
+    x isa Module && return nombre_modulo(x)
     if x isa AbstractVector && !(x isa AbstractRange) && length(x) > 12
         return join(un_valor.(x[1:3]), ", ") * ", … ($(length(x)) valores)"
     end
@@ -358,6 +393,8 @@ const REPL_LIMITE = Union{AbstractDict, Base.KeySet, Base.ValueIterator}
 function muestra(v)
     if es_plot(v)
         registra(v)
+    elseif v isa Module
+        println(stdout, nombre_modulo(v))
     elseif v isa REPL_LIMITE
         show(IOContext(stdout, :limit => true, :displaysize => (24, 80), :module => T[].modulo), MIME"text/plain"(), v)
         println(stdout)
@@ -577,6 +614,7 @@ function instrumenta(fex, linea)
     sig = fex.args[1]
     call = nombre_firma(sig)
     nombre = call.args[1]
+    isempty(PREFIJO[]) || (nombre = Symbol(PREFIJO[], nombre))
     args = args_de(call)
     push!(get!(T[].firmas, nombre isa Symbol ? nombre : Symbol(string(nombre)), String[]), string(sig))
     body = fex.args[2]
@@ -603,6 +641,26 @@ function instrumenta(fex, linea)
     # el propio Julia, como hace @test_throws); el error sigue su camino
     exc = Symbol("__exc")
     Expr(fex.head, sig, Expr(:block, Expr(:try, Expr(:block, nuevo...), exc, Expr(:block, llama(abandona, exc), Expr(:call, :rethrow)))))
+end
+
+# ── Los módulos (capítulo 23) ────────────────────────────────────────────
+# Definir un módulo es un solo paso. Dentro, sus funciones se reescriben como las del programa, para entrar en
+# ellas al llamarlas; su marco lleva el nombre del módulo, Notas.media. Va en un :toplevel, porque Julia
+# solo admite `module` en el nivel de arriba (no dentro de un bloque).
+const PREFIJO = Ref("")
+function reescribe_modulo(e, linea)
+    nombre = e.args[2]
+    out = Any[]; lin = linea
+    PREFIJO[] = string(nombre, ".")
+    try
+        for a in e.args[3].args
+            if a isa LineNumberNode; lin = a.line; push!(out, a); continue; end
+            push!(out, es_def_funcion(a) && !es_showerror(a) ? instrumenta(a, lin) : a)
+        end
+    finally
+        PREFIJO[] = ""
+    end
+    Expr(:toplevel, llama(va, linea), Expr(:module, e.args[1], nombre, Expr(:block, out...)), llama(paso, linea, LOCALS), nothing)
 end
 
 function cuerpo(b, linea, nivel)
@@ -680,6 +738,9 @@ function reescribe(e, linea, nivel; final = false)
     if e isa Expr && e.head in (:global, :local)
         final && return Expr(:block, llama(va, linea), e, nothing)
         return Expr(:block, llama(va, linea), e, llama(paso, linea, LOCALS), nothing)
+    end
+    if nivel == 0 && e isa Expr && e.head == :module
+        return reescribe_modulo(e, linea)
     end
     if nivel == 0 && e isa Expr && e.head in (:const, :using, :import, :struct, :macro, :module, :abstract, :primitive)
         return Expr(:block, llama(va, linea), e, llama(paso, linea, LOCALS), nothing)

@@ -15,6 +15,7 @@ import * as AZ from "./azar.mjs";
 import * as MT from "./matematicas.mjs";
 import * as EX from "./expr.mjs";
 import * as ER from "./errores.mjs";
+import * as VN from "./versiones.mjs";
 import { ErrorJulia, NoSoportado, I, F, B, S, Ch, NADA, FALTA, errorMetodo, aNum, tipo, repr } from "./valores.mjs";
 
 const T = nombre => ({ T: "Tipo", nombre });
@@ -24,7 +25,7 @@ export const TIPOS = {
   Rational: T("Rational"), Nothing: T("Nothing"), Missing: T("Missing"),
   Signed: T("Signed"), AbstractString: T("AbstractString"), AbstractChar: T("AbstractChar"), DataType: T("DataType"),
   Symbol: T("Symbol"), Expr: T("Expr"), QuoteNode: T("QuoteNode"), GlobalRef: T("GlobalRef"), LineNumberNode: T("LineNumberNode"),
-  Exception: T("Exception"), IO: T("IO"),
+  Exception: T("Exception"), IO: T("IO"), VersionNumber: T("VersionNumber"),
 };
 // los tipos de error de Julia (capítulo 22)
 for (const n of ER.NOMBRES) TIPOS[n] = T(n);
@@ -67,6 +68,7 @@ export function crearPrimitivas(prog) {
   // ── Aritmética ───────────────────────────────────────────────────────
   P.unaria = (op, x) => {
     { const r = prog.operaUsuario && prog.operaUsuario(op, [x]); if (r) return r; }
+    if (x.T === "UInt32") throw new NoSoportado("esta operación con un UInt32 (un entero sin signo)");
     if (x.T === "Missing" && op !== "!") return FALTA;
     if (op === "-" || op === "+") {
       if (op === "+" && x.T !== "Bool" && NUM(x)) return x;
@@ -84,6 +86,7 @@ export function crearPrimitivas(prog) {
   };
   P.binaria = (op, a, b) => {
     { const r = prog.operaUsuario && prog.operaUsuario(op, [a, b]); if (r) return r; }
+    if (a.T === "UInt32" || b.T === "UInt32") [a, b] = VN.aEntero(a, b);      // capítulo 23: v.major + 1
     if (op === "≠") op = "!=";
     if (op === "≤") op = "<=";
     if (op === "≥") op = ">=";
@@ -222,6 +225,7 @@ export function crearPrimitivas(prog) {
     if (a.T === "String" || a.T === "Char" || a.T === "Symbol") return a.v === b.v;
     if (a.T === "Nothing") return true;
     if (a.T === "Tipo") return a.nombre === b.nombre;
+    if (a.T === "VersionNumber") return VN.compara(a, b) === 0;
     return a === b;
   };
   P.identicos = (a, b) => {
@@ -248,6 +252,8 @@ export function crearPrimitivas(prog) {
       const cx = [...x.v].map(c => c.codePointAt(0)), cy = [...y.v].map(c => c.codePointAt(0));
       let k = 0; while (k < cx.length && k < cy.length && cx[k] === cy[k]) k++;
       menor = k < cx.length && k < cy.length ? cx[k] < cy[k] : cx.length < cy.length; igual = x.v === y.v;
+    } else if (x.T === "VersionNumber" && y.T === "VersionNumber") {         // parte a parte: v"1.10.0" > v"1.9.2"
+      const c = VN.compara(x, y); menor = c < 0; igual = c === 0;
     } else if ((x.T === "Pair" && y.T === "Pair") || (x.T === "Tuple" && y.T === "Tuple")) {   // orden lexicográfico
       const xs = x.T === "Pair" ? [x.a, x.b] : x.a, ys = y.T === "Pair" ? [y.a, y.b] : y.a;
       menor = false; igual = true;
@@ -474,6 +480,7 @@ export function crearPrimitivas(prog) {
       case "Matrix": return MX.esMatriz(v) && !v.vista && !v.bit;
       case "AbstractArray": return MX.esMatriz(v) || V.esVector(v);
       case "IO": return v.T === "IO";
+      case "VersionNumber": return v.T === "VersionNumber";
     }
     if (tt === "Exception" || ER.NOMBRES.includes(tt)) return (v.T === "Excepcion" || v.T === "Struct") && P.esSubtipo(v.tipo, tt);
     if (/^Matrix\{(\w+)\}$/.test(tt)) return MX.esMatriz(v) && !v.vista && !v.bit && v.el === tt.slice(7, -1);
@@ -487,6 +494,7 @@ export function crearPrimitivas(prog) {
   P.construye = (nombre, args, kw) => {
     if (P.esTipoPropio(nombre)) return P.creaStruct(nombre, args, kw);
     if (nombre === "Expr" || nombre === "QuoteNode" || nombre === "Symbol") return fn[nombre](args, kw);
+    if (nombre === "VersionNumber") return VN.construye(args);
     const [x] = args;
     if (args.length !== 1) throw new NoSoportado(nombre + "() con " + args.length + " argumentos");
     if (nombre === "Int64") {
@@ -844,6 +852,14 @@ export function crearPrimitivas(prog) {
     }
     throw new NoSoportado("comparar un " + tipo(a) + " con un " + tipo(b) + " en una búsqueda binaria");
   };
+  // isless(a, b): el orden de sort (capítulo 23, con números de versión)
+  fn.isless = (args) => {
+    if (args.length !== 2) throw errorMetodo("isless", args);
+    const [a, b] = args;
+    if (a.T === "VersionNumber" && b.T === "VersionNumber") return B(VN.compara(a, b) < 0);
+    if (a.T === "String" && b.T === "String") return P.compara("<", a, b);
+    return B(menorQue(a, b));
+  };
   const ordenada = (nombre, args) => {
     const [v, x] = args;
     if (args.length !== 2) throw new NoSoportado(nombre + " con " + args.length + " argumentos");
@@ -885,8 +901,22 @@ export function crearPrimitivas(prog) {
   };
   fn.map = ([f, ...xs]) => { if (xs.length !== 1) throw new NoSoportado("map con varias colecciones");
     if (xs[0].T === "String") { const r = [...xs[0].v].map(c => prog.aplica(f, [Ch(c)], new Map())); if (!r.every(e => e.T === "Char")) throw new NoSoportado("map sobre un texto con una función que no devuelve caracteres"); return S(r.map(e => e.v).join("")); } const res = P.itera(xs[0]).map(e => prog.aplica(f, [e], new Map())); if (!res.length) throw new NoSoportado("map sobre una colección vacía"); const r = P.recoge(res, false); if (MX.esMatriz(xs[0])) { const [nf, nc] = MX.dims(xs[0]); return MX.mat(r.el, nf, nc, r.a); } return r; };
-  fn.any = ([x]) => B(P.itera(x).some(e => e.v === true));
-  fn.all = ([x]) => B(P.itera(x).every(e => e.v === true));
+  // any(f, v) y all(f, v): como en Julia, paran en cuanto saben la respuesta (no llaman a f con los demás)
+  const algunoTodos = (todos) => (args) => {
+    if (args.length === 2) {
+      for (const e of P.itera(args[1])) {
+        const r = prog.aplica(args[0], [e], new Map());
+        if (r.T !== "Bool") throw new ErrorJulia("TypeError: non-boolean (" + tipo(r) + ") used in boolean context");
+        if (r.v !== todos) return B(!todos);
+      }
+      return B(todos);
+    }
+    if (args.length !== 1) throw new NoSoportado((todos ? "all" : "any") + " con " + args.length + " argumentos");
+    const els = P.itera(args[0]);
+    return B(todos ? els.every(e => e.v === true) : els.some(e => e.v === true));
+  };
+  fn.any = algunoTodos(false);
+  fn.all = algunoTodos(true);
   P.difundeF = (f, x) => V.vec("Any", P.itera(x).map(e => prog.aplica(f, [e], new Map())));
   const mutable = (nombre, x) => { if (x.T !== "Vector" && x.T !== "BitVector") throw errorMetodo(nombre, [x]); };
   fn["push!"] = ([v, ...xs]) => { mutable("push!", v); for (const x of xs) v.a.push(v.T === "BitVector" ? (x.T === "Bool" ? x : (() => { throw errInexacto("Bool", x); })()) : V.convierte(x, v.el)); return v; };
@@ -988,7 +1018,7 @@ export function crearPrimitivas(prog) {
   ER.operacionesDeErrores(P, fn, prog);
   P.paquetes.Test = {};             // using Test: @test y @test_throws están en julia.mjs (son macros)
   const tabla = new Map(Object.entries(fn).map(([k, f]) => [k, { T: "Primitiva", nombre: k, f }]));
-  const constantes = { Random: { T: "Modulo", nombre: "Random" }, Meta: { T: "Modulo", nombre: "Meta" }, π: V.PI, pi: V.PI, ℯ: V.E, Inf: F(Infinity), NaN: F(NaN), nothing: NADA, missing: FALTA, true: B(true), false: B(false) };
+  const constantes = { Random: { T: "Modulo", nombre: "Random" }, Meta: { T: "Modulo", nombre: "Meta" }, VERSION: VN.VERSION_JULIA, π: V.PI, pi: V.PI, ℯ: V.E, Inf: F(Infinity), NaN: F(NaN), nothing: NADA, missing: FALTA, true: B(true), false: B(false) };
   // los paquetes que el programa ha cargado con using (DataFrames, Statistics)
   const cargados = new Map();
   P.carga = nombre => { if (!P.paquetes[nombre]) return false; cargados.set(nombre, new Map(Object.entries(P.paquetes[nombre]).map(([k, f]) => [k, typeof f === "function" ? { T: "Primitiva", nombre: k, f } : f]))); return true; };

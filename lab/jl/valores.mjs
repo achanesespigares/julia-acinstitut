@@ -218,7 +218,9 @@ export function repr(x, dentro = false) {
     case "Uniforme": return "UniformScaling{" + tipo(x.l) + "}(" + repr(x.l) + ")";
     case "Plot": return "Plot{Plots.GRBackend() n=" + x.sp.series.length + "}";
     case "RNG": return "TaskLocalRNG()";
-    case "Modulo": return x.nombre;
+    case "Modulo": return x.propio ? "Main." + x.nombre : x.nombre;      // un módulo del programa: Main.Notas (capítulo 23)
+    case "VersionNumber": return 'v"' + x.a.join(".") + '"';
+    case "UInt32": return "0x" + x.v.toString(16).padStart(8, "0");
     case "Struct": return tipo(x) + "(" + x.a.map(e => repr(e)).join(", ") + ")";
     case "Excepcion": return x.tipo + "(" + x.a.map(e => repr(e)).join(", ") + ")";      // DomainError(-4.0, "…")
     case "DataFrame": case "FilaDF": case "GrupoDF": return GANCHOS.muestraDF(x);      // show de un tipo propio: Alumna("Ana", 2, 9.0)
@@ -285,7 +287,8 @@ function muestraClaves(x) {
 }
 
 // print(x): como repr, pero los textos y los caracteres van tal cual
-export const texto = x => x.T === "String" || x.T === "Char" || x.T === "Symbol" ? x.v : ["Expr", "QuoteNode", "GlobalRef"].includes(x.T) ? GANCHOS.textoExpr(x) : repr(x);
+export const texto = x => x.T === "String" || x.T === "Char" || x.T === "Symbol" ? x.v : ["Expr", "QuoteNode", "GlobalRef"].includes(x.T) ? GANCHOS.textoExpr(x) :
+  x.T === "VersionNumber" ? x.a.join(".") : x.T === "UInt32" ? x.v.toString() : repr(x);
 
 // display(x): lo que escribe el REPL al mostrar un valor (show con MIME"text/plain")
 export function muestra(x) {

@@ -16,6 +16,7 @@ import { NOMBRES_BASE, NOMBRES_PAQUETES } from "./nombres-base.mjs";
 import * as MX from "./matrices.mjs";
 import * as EX from "./expr.mjs";
 import * as ER from "./errores.mjs";
+import * as VN from "./versiones.mjs";
 
 V.GANCHOS.reprExpr = EX.quoteTop; V.GANCHOS.reprRaro = EX.reprRaro; V.GANCHOS.textoExpr = EX.textoExpr; V.GANCHOS.reprSimbolo = EX.reprSimbolo;
 
@@ -81,7 +82,10 @@ function buscaError(n) {
 class Programa {
   constructor(codigo, config, parser) {
     this.codigo = codigo; this.parser = parser;
-    this.glob = new Map();
+    // capítulo 23: las variables globales son las del módulo en curso: Main (globMain) o un módulo del programa,
+    // mientras se define o mientras corre una de sus funciones. usados: los módulos de using .Notas; importados:
+    // los nombres de using .Notas: media
+    this.globMain = new Map(); this.modulo = null; this.usados = []; this.importados = new Map();
     this.pasos = []; this.filas = []; this.orden = []; this.pila = [];
     this.nmarcos = 0; this.vueltas = new Map(); this.actual = 0;
     this.locales = new Map();
@@ -95,12 +99,27 @@ class Programa {
     this.prim = crearPrimitivas(this);
   }
 
+  get glob() { return this.modulo ? this.modulo.glob : this.globMain; }
+  // el nombre de una función para su marco y su firma: Notas.media si es de un módulo del programa
+  nombreF(f) { return f.modulo ? f.modulo.nombre + "." + f.nombre : f.nombre; }
+
   // ── Fotografiar ────────────────────────────────────────────────────────
   oculto(n) { return n.startsWith("#") || n.startsWith("__") || this.ocultar.has(n); }
   firma(nombre) { const f = this.firmas.get(nombre); return f && f.length ? f.join("\n") : nombre; }
   unId(x) { if (!this.ids.has(x)) this.ids.set(x, this.ids.size + 1); return this.ids.get(x); }
   describe(x, prof = 0) {
-    if (x.T === "Funcion") return { t: "function", r: this.firma(x.nombre), m: x.nmetodos() };
+    if (x.T === "Funcion") return { t: "function", r: this.firma(this.nombreF(x)), m: x.nmetodos() };
+    if (x.T === "UInt32") return { t: "UInt32", e: true, v: [V.repr(x)] };
+    if (x.T === "Modulo" && x.propio) {       // como trazar.jl: sus nombres, en el orden en que se definen, y si los exporta
+      const d = { t: "Module", r: V.repr(x) };
+      if (prof < 2) {
+        const sinExport = this.codigo.replace(/^\s*export .*$/gm, m => " ".repeat(m.length));
+        const pos = n => { const m = new RegExp("(?<![A-Za-z0-9_.])" + n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?![A-Za-z0-9_!])").exec(sinExport); return m ? m.index : Infinity; };
+        const ns = [...x.glob.keys()].filter(n => !this.oculto(n)).sort((a, b) => pos(a) - pos(b) || (a < b ? -1 : a > b ? 1 : 0));
+        d.modulo = ns.map(n => ({ exporta: x.exporta.has(n), nombre: n, v: this.describe(x.glob.get(n), prof + 1) }));
+      }
+      return d;
+    }
     if (x.T === "Primitiva") return { t: "function", r: x.fix ? "Fix" : x.nombre, m: x.fix ? 2 : 1 };     // ==(6) es un Base.Fix2: nameof da :Fix
     if (V.esEscalar(x)) return { t: V.tipo(x), e: true, v: [V.repr(x)] };
     if (x.T === "Expr") {          // como trazar.jl: como la escribe el REPL, su identidad y su árbol (hasta 60 nodos)
@@ -158,18 +177,18 @@ class Programa {
     return { t: V.tipo(x), r: this.prim.muestra(x) };
   }
   corto(x) {
-    if (x.T === "Funcion") return this.firma(x.nombre);
+    if (x.T === "Funcion") return this.firma(this.nombreF(x));
     if ((x.T === "Vector" || x.T === "BitVector") && x.a.length > 12) return x.a.slice(0, 3).map(e => V.repr(e)).join(", ") + ", … (" + x.a.length + " valores)";
     return V.repr(x);
   }
   foto() {
-    const ns = [...this.glob.keys()].filter(n => !this.oculto(n) && !this.pendientes.has(n)).sort();
+    const ns = [...this.globMain.keys()].filter(n => !this.oculto(n) && !this.pendientes.has(n)).sort();
     for (const n of ns) if (!this.orden.includes(n)) this.orden.push(n);
     this.orden.push(...this.enOrdenDeLectura([...this.locales.keys()].filter(n => !this.oculto(n) && !this.orden.includes(n))));
     const est = {}, orden = [];
     for (const n of this.orden) {
       if (this.locales.has(n) && !this.oculto(n)) { const d = this.describe(this.locales.get(n)); d.local = true; est[n] = d; orden.push(n); }
-      else if (this.glob.has(n) && !this.oculto(n) && !this.pendientes.has(n)) { est[n] = this.describe(this.glob.get(n)); orden.push(n); }
+      else if (this.globMain.has(n) && !this.oculto(n) && !this.pendientes.has(n)) { est[n] = this.describe(this.globMain.get(n)); orden.push(n); }
     }
     return [est, orden];
   }
@@ -224,9 +243,9 @@ class Programa {
   entra(f, met, l, sc, args) {
     this.nmarcos++;
     const locs = this.locs(sc);
-    const llamada = f.nombre + "(" + args.filter(a => locs.has(a)).map(a => a + " = " + this.corto(locs.get(a))).join(", ") + ")";
-    this.pila.push({ id: this.nmarcos, nombre: f.nombre, vars: locs, orden: [...args], desde: this.actual, llamada });
-    this.anota({ linea: l, tipo: "llamada", funcion: f.nombre });
+    const llamada = this.nombreF(f) + "(" + args.filter(a => locs.has(a)).map(a => a + " = " + this.corto(locs.get(a))).join(", ") + ")";
+    this.pila.push({ id: this.nmarcos, nombre: this.nombreF(f), vars: locs, orden: [...args], desde: this.actual, llamada });
+    this.anota({ linea: l, tipo: "llamada", funcion: this.nombreF(f) });
   }
   sale(v) {
     if (this.mudo) return v;
@@ -247,6 +266,7 @@ class Programa {
   busca(nombre, sc) {
     for (let s = sc; s; s = s.padre) { if (s.vars.has(nombre)) return s.vars.get(nombre); if (s.funcion && s.globales?.has(nombre)) break; }
     if (this.glob.has(nombre)) return this.glob.get(nombre);
+    if (!this.modulo) { const r = this.deUsados(nombre); if (r) return r; }
     if (nombre in TIPOS) return TIPOS[nombre];
     if (this.prim.tiene(nombre)) return this.prim.funcion(nombre);
     // un nombre de un paquete que el programa no ha cargado: Julia da una pista (los paquetes están cargados en trazar.jl)
@@ -258,7 +278,18 @@ class Programa {
     }
     if (CONOCIDAS.has(nombre) || NOMBRES_BASE.has(nombre)) throw new NoSoportado("la función " + nombre + "()");
     for (const [p, ns] of Object.entries(NOMBRES_PAQUETES)) if (ns.has(nombre)) throw new NoSoportado(nombre + ", de " + p);
-    throw new ErrorJulia("UndefVarError: `" + nombre + "` not defined in `Main`\nSuggestion: check for spelling errors or missing imports.");
+    throw new ErrorJulia("UndefVarError: `" + nombre + "` not defined in `" + (this.modulo ? V.repr(this.modulo) : "Main") + "`\nSuggestion: check for spelling errors or missing imports.");
+  }
+  // un nombre que no es de Main, en los módulos del programa: el que se importó con using .Notas: media, o el que
+  // exporta un módulo de using .Notas. Si lo exportan dos módulos con valores distintos, Julia no elige
+  deUsados(nombre) {
+    if (this.importados.has(nombre)) { const m = this.importados.get(nombre); return m.glob.get(nombre); }
+    const ms = this.usados.filter(m => m.exporta.has(nombre) && m.glob.has(nombre));
+    if (!ms.length) return null;
+    if ((nombre in TIPOS) || this.prim.tiene(nombre)) throw new NoSoportado("un nombre que exporta tu módulo y que también es de Julia (" + nombre + ")");
+    const vs = new Set(ms.map(m => m.glob.get(nombre)));
+    if (vs.size > 1) throw new ErrorJulia("UndefVarError: `" + nombre + "` not defined in `Main`\nHint: It looks like two or more modules export different bindings with this name, resulting in ambiguity. Try explicitly importing it from a particular module, or qualifying the name with the module it should come from.");
+    return ms[0].glob.get(nombre);
   }
   asigna(nombre, v, sc) {
     if (!sc) { this.glob.set(nombre, v); return; }
@@ -327,13 +358,14 @@ class Programa {
       case "using_statement": {       // using DataFrames, Statistics, LinearAlgebra: los paquetes que el laboratorio conoce
         if (nivel !== 0) throw new NoSoportado("using dentro de un bloque");
         const ps = hijos(n);
+        if (ps.some(p => p.type !== "identifier")) return this.usa(n, nivel, sc, false);
         for (const p of ps) if (p.type !== "identifier" || !this.prim.paquetes[p.text]) throw new NoSoportado("cargar el paquete " + p.text + ": el laboratorio solo conoce DataFrames, Statistics, LinearAlgebra, Random, Plots y Test");
         this.va(l);
         for (const p of ps) this.prim.carga(p.text);
         this.paso(l, sc);
         return NADA;
       }
-      case "import_statement": throw new NoSoportado("import");
+      case "import_statement": return this.usa(n, nivel, sc, true);
       case "struct_definition": case "abstract_definition": {
         if (nivel !== 0) throw new NoSoportado("definir un tipo dentro de un bloque");
         this.va(l);
@@ -349,8 +381,15 @@ class Programa {
         this.paso(l, sc);
         return NADA;
       }
-      case "module_definition": throw new NoSoportado(n.type);
-      case "const_statement": throw new NoSoportado("const");
+      case "module_definition": return this.defineModulo(n, nivel, sc);
+      case "const_statement": {        // const MAXIMO = 10: como una asignación (el REPL no escribe su valor)
+        if (nivel !== 0) throw new NoSoportado("const dentro de un bloque");
+        const [a] = hijos(n);
+        if (!a || a.type !== "assignment" || hijos(a)[0].type !== "identifier") throw new NoSoportado("esta forma de const");
+        this.va(l); this.valor(a, sc); this.paso(l, sc);
+        return NADA;
+      }
+      case "export_statement": throw new NoSoportado("export fuera de un módulo");
     }
     if (final) { const v = this.valor(n, sc); return n.type === "local_statement" || n.type === "global_statement" ? NADA : v; }
     this.va(l);
@@ -704,8 +743,9 @@ class Programa {
       this.va(l); this.paso(l, sc);
       return NADA;
     }
-    if (!this.firmas.has(nombre)) this.firmas.set(nombre, []);
-    this.firmas.get(nombre).push(firma);
+    const clave = this.modulo ? this.modulo.nombre + "." + nombre : nombre;      // Notas.media (capítulo 23)
+    if (!this.firmas.has(clave)) this.firmas.set(clave, []);
+    this.firmas.get(clave).push(firma);
     let f = (sc ? this.locs(sc).get(nombre) : null) || this.glob.get(nombre);
     if (f && f.T === "Tipo" && this.prim.esTipoPropio(f.nombre)) {      // Alumna(nombre) = …: un constructor más para el tipo
       const def = this.prim.tipos.get(f.nombre);
@@ -714,13 +754,19 @@ class Programa {
       if (nivel === 0) { this.va(l); this.paso(l, sc); }
       return NADA;
     }
-    if (!f || f.T !== "Funcion") f = nuevaFuncion(nombre);
+    if (!f || f.T !== "Funcion") { f = nuevaFuncion(nombre); if (this.modulo) f.modulo = this.modulo; }
     this.agregaMetodo(f, met);
     if (nivel === 0) { this.va(l); this.asigna(nombre, f, sc); this.paso(l, sc); return NADA; }
     this.asigna(nombre, f, sc);
     return f;
   }
   llamaPrograma(f, args, kwargs, elegido) {
+    // una función de un módulo corre en su módulo: ve sus variables globales, no las de Main (capítulo 23)
+    const modAntes = this.modulo;
+    this.modulo = f.modulo || null;
+    try { return this.llamaEnModulo(f, args, kwargs, elegido); } finally { this.modulo = modAntes; }
+  }
+  llamaEnModulo(f, args, kwargs, elegido) {
     const n = args.length;
     const e = elegido || this.eligeMetodo(f, args);
     if (!e) throw V.errorMetodo(f.nombre, args);
@@ -758,6 +804,54 @@ class Programa {
   abandona(e) {
     if (!this.alFallar || this.alFallar.e !== e) this.alFallar = { e, marcos: this.fotoMarcos() };
     if (this.pila.length) this.pila.pop();
+  }
+
+  // ── Módulos (capítulo 23) ────────────────────────────────────────────────
+  // module Notas … end: un solo paso, como en trazar.jl. Dentro, las definiciones corren sin pasos, con las
+  // variables globales del módulo; sus funciones sí dejan pasos cuando se llaman, con el nombre Notas.media
+  defineModulo(n, nivel, sc) {
+    if (nivel !== 0 || this.modulo) throw new NoSoportado("un módulo dentro de otro bloque");
+    const l = linea(n), [nom, ...cuerpo] = hijos(n);
+    if (!nom || nom.type !== "identifier") throw new NoSoportado("esta forma de module");
+    if (this.globMain.has(nom.text)) throw new NoSoportado("redefinir el módulo " + nom.text);
+    this.va(l);
+    const m = { T: "Modulo", nombre: nom.text, propio: true, glob: new Map(), exporta: new Set() };
+    this.globMain.set(nom.text, m);
+    this.modulo = m; this.mudo++;
+    try {
+      for (const st of cuerpo) {
+        if (st.type === "export_statement") { for (const c of hijos(st)) { if (c.type !== "identifier") throw new NoSoportado("export de " + c.text); m.exporta.add(c.text); } continue; }
+        if (st.type === "function_definition" || (st.type === "assignment" && this.esDefCorta(st))) { this.defineFuncion(st, 0, null); continue; }
+        if (st.type === "const_statement" || st.type === "assignment") { this.sentencia(st, 0, null); continue; }
+        throw new NoSoportado("esto dentro de un módulo (" + st.type.replace(/_/g, " ") + ")");
+      }
+    } finally { this.modulo = null; this.mudo--; }
+    this.paso(l, sc);
+    return NADA;
+  }
+  // using .Notas, using .Notas: media, import .Notas: media (import sin dos puntos solo trae el nombre del módulo)
+  usa(n, nivel, sc, esImport) {
+    if (nivel !== 0) throw new NoSoportado((esImport ? "import" : "using") + " dentro de un bloque");
+    const l = linea(n), partes = hijos(n);
+    const modulo = p => {
+      if (p.type !== "import_path" || !/^\.\w+$/.test(p.text)) throw new NoSoportado((esImport ? "import " : "using ") + p.text + ": el laboratorio sabe using .MiModulo, con un módulo de tu programa");
+      const m = this.globMain.get(p.text.slice(1));
+      if (!m || m.T !== "Modulo" || !m.propio) throw new NoSoportado((esImport ? "import " : "using ") + p.text + " sin ese módulo en el programa");
+      return m;
+    };
+    const tareas = partes.map(p => {
+      if (p.type === "selected_import") {
+        const [ruta, ...ns] = hijos(p), m = modulo(ruta);
+        for (const c of ns) if (c.type !== "identifier" || !m.glob.has(c.text)) throw new NoSoportado("importar " + c.text + " de " + m.nombre);
+        return () => { for (const c of ns) this.importados.set(c.text, m); };
+      }
+      const m = modulo(p);
+      return () => { if (!esImport && !this.usados.includes(m)) this.usados.push(m); };
+    });
+    this.va(l);
+    for (const t of tareas) t();
+    this.paso(l, sc);
+    return NADA;
   }
 
   // ── try / catch / finally (capítulo 22) ─────────────────────────────────
@@ -832,6 +926,11 @@ class Programa {
       }
       case "boolean_literal": return B(n.text === "true");
       case "string_literal": return S(this.cadena(n, sc));
+      case "prefixed_string_literal": {        // v"1.8.3": un número de versión (capítulo 23)
+        const [p] = hijos(n), cs = hijos(n).filter(c => c.type === "content");
+        if (p.text !== "v" || hijos(n).some(c => c.type !== "identifier" && c.type !== "content")) throw new NoSoportado("los textos " + p.text + "\"…\"");
+        return VN.lee(cs.map(c => c.text).join(""));
+      }
       case "character_literal": return Ch(this.caracter(n.text));
       case "identifier": {
         if (n.text === "end") { if (this.fin === undefined) throw new NoSoportado("end fuera de unos corchetes"); return I(this.fin); }
@@ -917,6 +1016,11 @@ class Programa {
         const [obj, campo] = hijos(n), x = this.valor(obj, sc), c = campo.text;
         if (x.T === "Struct") return this.prim.leeCampo(x, c);
         if (x.T === "Excepcion") return this.prim.leeCampoExc(x, c);
+        if (x.T === "Modulo" && x.propio) {          // Notas.media, Notas.MINIMO: un nombre de un módulo del programa
+          if (!x.glob.has(c)) throw new ErrorJulia("UndefVarError: `" + c + "` not defined in `" + V.repr(x) + "`\nSuggestion: check for spelling errors or missing imports.");
+          return x.glob.get(c);
+        }
+        if (x.T === "VersionNumber") return VN.campo(x, c);
         if (x.T === "Modulo") {          // Random.seed!(42): una función de un módulo
           const f = (this.prim.modulos[x.nombre] || {})[c];
           if (!f) throw new NoSoportado(x.nombre + "." + c);
@@ -1181,7 +1285,7 @@ class Programa {
   // el nombre de un tipo escrito en el programa: Int → Int64, Vector{Int} → Vector{Int64}
   nombreTipo(c) {
     const NOMBRES = { Int: "Int64", Int64: "Int64", Float64: "Float64", String: "String", Char: "Char", Bool: "Bool", Any: "Any", Real: "Real", Integer: "Integer", AbstractString: "AbstractString", Number: "Number",
-      Signed: "Signed", AbstractFloat: "AbstractFloat", AbstractChar: "AbstractChar", Nothing: "Nothing", Missing: "Missing" };
+      Signed: "Signed", AbstractFloat: "AbstractFloat", AbstractChar: "AbstractChar", Nothing: "Nothing", Missing: "Missing", VersionNumber: "VersionNumber" };
     if (c.type === "identifier" && NOMBRES[c.text]) return NOMBRES[c.text];
     if (c.type === "identifier" && this.prim.esTipoPropio(c.text)) return c.text;
     if (c.type === "parametrized_type_expression") {

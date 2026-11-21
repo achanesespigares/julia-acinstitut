@@ -12,7 +12,7 @@ export const PADRE_JULIA = {
   Int64: "Signed", Signed: "Integer", Bool: "Integer", Integer: "Real", Float64: "AbstractFloat", AbstractFloat: "Real",
   "Rational{Int64}": "Real", Real: "Number", Number: "Any", String: "AbstractString", AbstractString: "Any",
   Char: "AbstractChar", AbstractChar: "Any", Nothing: "Any", Missing: "Any", DataType: "Type{T}", Symbol: "Any",
-  Exception: "Any", IO: "Any",
+  Exception: "Any", IO: "Any", VersionNumber: "Any",
 };
 // los tipos de error de Julia (capítulo 22): todos son subtipos directos de Exception
 for (const n of ER.NOMBRES) PADRE_JULIA[n] = "Exception";

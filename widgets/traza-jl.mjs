@@ -81,6 +81,7 @@ pre.tz-codigo{ margin:0; font:400 14px/1.85 var(--mono); overflow-x:auto; backgr
 .tz table.dic th{ font:600 9.5px/1 var(--titulo); letter-spacing:.06em; text-transform:uppercase; color:var(--banda); text-align:left; padding:5px 8px; border-bottom:1px solid var(--filete); }
 .tz table.dic td{ padding:5px 8px; border-top:1px solid var(--fila); white-space:pre; }
 .tz table.dic td.flecha{ color:var(--banda); padding:5px 2px; }
+.tz table.dic td:last-child{ white-space:pre-wrap; overflow-wrap:anywhere; }      /* un valor largo (un vector de versiones) parte la línea en el móvil */
 .tz table.dic tr.nueva td, .tz table.dic tr.cambia td{ background:var(--suave); }
 .tz table.dic tr.nueva td:first-child, .tz table.dic tr.cambia td:last-child{ color:var(--acento); font-weight:700; }
 .tz .fila-letras{ display:flex; flex-wrap:wrap; row-gap:8px; }   /* un texto: sus letras, con el índice (de byte) de cada una */
@@ -204,6 +205,9 @@ pre.tz-codigo{ margin:0; font:400 14px/1.85 var(--mono); overflow-x:auto; backgr
 .tz-aviso .origen, .tz-error .origen{ font-family:var(--mono, ui-monospace, monospace); font-size:12.5px; opacity:.8; }
 .tz-error{ border:2px solid var(--acento); background:var(--suave); border-radius:8px; padding:8px 12px; font-size:14px; }
 .tz-error .txt{ white-space:pre-line; overflow-wrap:anywhere; }
+.tz .modulo{ border-left:3px solid var(--acento); padding:2px 0 2px 10px; display:flex; flex-direction:column; gap:8px; }   /* capítulo 23 */
+.tz .modulo .exp{ font:600 9.5px/1 var(--titulo); letter-spacing:.06em; text-transform:uppercase; color:#fff; background:var(--acento); border-radius:3px; padding:2px 4px; }
+.tz .modulo .noexp{ font:400 11.5px/1 var(--texto); color:var(--banda); }
 .tz-error.atrapado{ border-style:dashed; background:#fff; }      /* capítulo 22: un error que atrapa un catch */
 .tz-error.atrapado b{ color:var(--acento); }
 .tz .ln.salta{ border-left:4px dashed var(--acento); }
@@ -431,6 +435,7 @@ const EJEMPLOS = [
   { nombre: "Piedra, papel o tijera", codigo: "abstract type Jugada end\nstruct Piedra <: Jugada end\nstruct Papel <: Jugada end\nstruct Tijera <: Jugada end\ngana(a::Jugada, b::Jugada) = false\ngana(a::Piedra, b::Tijera) = true\ngana(a::Tijera, b::Papel) = true\ngana(a::Papel, b::Piedra) = true\ngana(Piedra(), Tijera())\ngana(Tijera(), Piedra())\ngana(Papel(), Papel())" },
   { nombre: "Un polinomio hecho código", codigo: "coefs = [1, -3, 2]\np = :(0)\nfor (k, c) in enumerate(coefs)\n    p = :($p + $c * x ^ $(k - 1))\nend\np\nx = 2\neval(p)\nx = 0.5\neval(p)", tabla: "k, c, p" },
   { nombre: "Una nota que no vale", codigo: "function nota(t)\n    n = tryparse(Float64, t)\n    n === nothing && throw(ArgumentError(\"«$t» no es un número\"))\n    0 <= n <= 10 || throw(DomainError(n, \"la nota va de 0 a 10\"))\n    return n\nend\nfor t in [\"8.5\", \"once\", \"12\", \"6\"]\n    try\n        println(t, \" → \", nota(t))\n    catch e\n        println(t, \" → \", typeof(e))\n    end\nend\nnota(\"diez\")" },
+  { nombre: "Un módulo propio", codigo: "module Tienda\nexport precio\nconst IVA = 0.21\nprecio(base) = round(base * (1 + IVA); digits = 2)\nend\nusing .Tienda\nprecios = precio.([10.0, 4.5, 20.0])\nTienda.IVA\nv\"1.10.0\" > v\"1.9.0\"" },
   { nombre: "Una vista que trabaja", codigo: "function aprueba!(v)\n    for i in eachindex(v)\n        v[i] = max(v[i], 5)\n    end\n    return v\nend\nnotas = [3, 8, 4, 9, 2, 7]\ngrupo_a = view(notas, 1:3)\naprueba!(grupo_a)\nnotas\ncopia = notas[4:6]\naprueba!(copia)\nnotas" },
   { nombre: "Contar los pasos", codigo: "v = [3, 8, 15, 21, 30, 42, 57, 64, 77, 88]\nx = 64\nizq = 1\nder = length(v)\npasos = 0\nwhile izq <= der\n    pasos += 1\n    m = (izq + der) ÷ 2\n    if v[m] == x\n        break\n    elseif v[m] < x\n        izq = m + 1\n    else\n        der = m - 1\n    end\nend\npasos", tabla: "pasos, izq, m, der" },
   { nombre: "Un bucle que suma", codigo: "notas = [9.0, 6.5, 4.0, 7.5]\ntotal = 0.0\nfor i in eachindex(notas)\n    if notas[i] >= 5\n        total += notas[i]\n    end\nend\ntotal", tabla: "i, notas[i], total" },
@@ -625,6 +630,8 @@ function dibujaTraza(el, C, D) {
   function quees(v) {
     if (v.plot) return "un gráfico (" + code("Plots.Plot") + "): un objeto que guarda " + (nSeries(v) === 1 ? "una serie de datos y cómo dibujarla" : nSeries(v) ? seriesTxt(nSeries(v)) + " de datos y cómo dibujarlas" : "cómo dibujarse, aún sin datos") + " (colores, títulos, ejes)";
     if (v.t === "function") return "una función: guarda sus instrucciones, que no se ejecutan hasta que alguien la llame";
+    if (v.t === "Module") return "un módulo, " + code(v.r) + ": un espacio de nombres propio" + (v.modulo ? ", con " + v.modulo.length + (v.modulo.length === 1 ? " nombre" : " nombres") : "");
+    if (v.t === "VersionNumber") return "un número de versión (" + code("VersionNumber") + "), " + code(v.r) + ": tres números, mayor, menor y parche, que se comparan uno a uno";
     if (v.t === "Expr") {
       const e = v.expr, n = e ? e.a.length : 0;
       let s = "una expresión (" + code("Expr") + "): código guardado como dato, todavía sin ejecutar";
@@ -694,11 +701,74 @@ function dibujaTraza(el, C, D) {
     if (/(^|[^\w.])rethrow\(/.test(lt)) return " Es el mismo error de antes: " + code("rethrow") + " lo deja seguir su camino.";
     return "";
   }
+  // capítulo 23: los módulos del programa que se usan antes de la línea l (using .Notas), y los nombres importados
+  // uno a uno (using .Notas: media)
+  const yLista = xs => xs.length > 1 ? xs.slice(0, -1).join(", ") + " y " + xs[xs.length - 1] : xs[0] || "";
+  function usosAntes(l) {
+    const usados = [], sueltos = {};
+    for (let k = 0; k < l - 1; k++) {
+      const m = (L[k] || "").match(/^\s*(using|import)\s+(.+?)\s*$/);
+      if (!m) continue;
+      const sel = m[2].match(/^\.(\w+)\s*:\s*(.+)$/);
+      if (sel) { for (const x of sel[2].split(",")) sueltos[x.trim()] = sel[1]; continue; }
+      if (m[1] === "using") for (const x of m[2].split(",")) { const t = x.trim(); if (/^\.\w+$/.test(t)) usados.push(t.slice(1)); }
+    }
+    return { usados, sueltos };
+  }
+  const exportaDe = (est, mod) => est && est[mod] && est[mod].modulo ? est[mod].modulo.filter(e => e.exporta).map(e => e.nombre) : [];
+  function narraUso(p, lt) {
+    const m = lt.match(/^(using|import)\s+(.+)$/), cmd = m[1];
+    const sel = m[2].match(/^\.(\w+)\s*:\s*(.+)$/);
+    if (sel) {
+      const ns = sel[2].split(",").map(x => x.trim()), mod = sel[1];
+      const otros = usosAntes(p.linea).usados.filter(x => x !== mod && ns.some(n => exportaDe(p.estado, x).includes(n)));
+      return code(lt) + " trae de " + code(mod) + " solo " + yLista(ns.map(code)) + ", " + (ns.length === 1 ? "lo exporte o no" : "los exporte o no") + ": desde aquí, " + yLista(ns.map(code)) + (ns.length === 1 ? " es" : " son") + " " + (ns.length === 1 ? "la" : "los") + " de " + code(mod) + "." +
+        (otros.length ? " " + yLista(otros.map(code)) + " también exporta " + yLista(ns.filter(n => otros.some(x => exportaDe(p.estado, x).includes(n))).map(code)) + ", pero un nombre importado así gana: ya no hay duda de cuál es." : "") +
+        (cmd === "import" ? " Con " + code("import") + ", además, el programa podría añadirle métodos." : "") + " La memoria no cambia: lo que cambia es dónde busca Julia cada nombre.";
+    }
+    const mods = m[2].split(",").map(x => x.trim()).filter(x => /^\.\w+$/.test(x)).map(x => x.slice(1));
+    if (cmd === "import") return code(lt) + " solo deja a la vista el nombre del módulo: para usar lo de dentro hay que escribir " + code(mods[0] + ".") + " delante.";
+    const exp = mods.flatMap(x => exportaDe(p.estado, x));
+    const antes = usosAntes(p.linea).usados, choques = [];
+    for (const x of mods) for (const n of exportaDe(p.estado, x)) {
+      const otro = antes.concat(mods.filter(y => y !== x && mods.indexOf(y) < mods.indexOf(x))).find(y => y !== x && exportaDe(p.estado, y).includes(n));
+      if (otro && !choques.some(c => c[0] === n)) choques.push([n, otro, x]);
+    }
+    const primera = !P.slice(0, P.indexOf(p)).some(x => /^\s*using\s+\./.test(L[x.linea - 1] || ""));
+    return code(lt) + " hace visibles aquí, en el programa principal, los nombres que " + (mods.length === 1 ? "exporta " + code(mods[0]) : "exportan " + yLista(mods.map(code))) + (exp.length ? ": " + yLista(exp.map(code)) : "") + "." +
+      (primera ? " El punto de " + code("." + mods[0]) + " dice que el módulo está en este mismo programa; un paquete instalado se carga sin punto, como " + code("using DataFrames") + "." : "") +
+      " La memoria no cambia: " + (exp.length ? code(exp[0]) + " sigue dentro de " + code(mods[0]) : "lo de dentro sigue dentro") + ", y lo que cambia es dónde busca Julia cada nombre." +
+      (choques.length ? " Pero " + choques.map(([n, a, b]) => code(b) + " también exporta " + code(n) + ", igual que " + code(a)).join(", y ") + ": ahora hay dos " + code(choques[0][0]) + " distintas a la vista. Julia no se queja todavía; lo hará si el programa escribe " + code(choques[0][0]) + " sin decir de qué módulo es." : "");
+  }
+  // Notas.media: de qué módulo es la función, y por qué se ha podido escribir sin Notas. delante
+  function deModulo(p, m) {
+    const k = m.nombre.indexOf(".");
+    if (k < 0 || /^Base\./.test(m.nombre)) return "";
+    const mod = m.nombre.slice(0, k), f = m.nombre.slice(k + 1), ld = L[m.desde - 1] || "";
+    if (new RegExp("\\b" + mod + "\\." + f.replace(/!/g, "\\!") + "\\(").test(ld)) return " Es la función " + code(f) + " del módulo " + code(mod) + ", escrita con el nombre del módulo delante.";
+    const llama = p.marcos.length > 1 ? p.marcos[p.marcos.length - 2].nombre : null;
+    if (llama && llama.startsWith(mod + ".")) return " " + code(f) + " es del mismo módulo, " + code(mod) + ": dentro de un módulo, sus nombres se usan sin " + code(mod + ".") + " delante.";
+    const u = usosAntes(m.desde);
+    if (u.sueltos[f] === mod) return " Es la función " + code(f) + " del módulo " + code(mod) + ", que el programa ha importado con " + code("using ." + mod + ": " + f) + ".";
+    return " Es la función " + code(f) + " del módulo " + code(mod) + ": el programa la escribe sin " + code(mod + ".") + " delante porque " + code(mod) + " la exporta y el programa ha hecho " + code("using ." + mod) + ".";
+  }
+  function errorDeNombre(p) {
+    const e = p.error || "", m = e.match(/^UndefVarError: `([^`]+)` not defined in `([^`]+)`/);
+    if (!m) return "";
+    if (/two or more modules export different bindings/.test(e)) {
+      const mods = usosAntes(p.linea).usados.filter(x => exportaDe(p.estado, x).includes(m[1]));
+      return " Hay dos " + code(m[1]) + " a la vista" + (mods.length > 1 ? ", " + yLista(mods.map(x => "la de " + code(x))) : "") + ", y Julia no elige por ti: para el programa principal, " + code(m[1]) + " no está definida. El arreglo es decir de cuál se habla: " + (mods.length ? code(mods[0] + "." + m[1] + "(…)") + ", o traer solo una con " + code("using ." + mods[0] + ": " + m[1]) : "con el nombre del módulo delante") + ".";
+    }
+    if (m[2] !== "Main") return " Dentro del módulo " + code(m[2].replace(/^Main\./, "")) + " solo se ven sus propios nombres y los de Julia: " + code(m[1]) + " no es de " + code(m[2].replace(/^Main\./, "")) + ".";
+    const donde = Object.keys(p.estado || {}).find(x => p.estado[x].modulo && p.estado[x].modulo.some(f => f.nombre === m[1] && !f.exporta));
+    return donde ? " " + code(m[1]) + " existe, pero dentro de " + code(donde) + ", que no la exporta: desde el programa principal no se ve así. Hay que escribir el nombre del módulo delante, " + code(donde + "." + m[1]) + "." : "";
+  }
   function narra(p, prev) {
     if (p.tipo === "inicio") return "El programa está listo. Pulsa «Paso ▶» para ejecutar la primera línea.";
     if (p.tipo === "error") return "Julia se detiene en la línea " + p.linea + " con un error" + (p.marcos && p.marcos.length ? ", dentro de " + code(p.marcos[p.marcos.length - 1].llamada) : "") + ". Lo que viene detrás ya no se ejecuta." +
       quienLanza(p.linea) +
       (p.error === "There was an error during testing" ? " Es lo que hace un " + code("@test") + " que falla fuera de un " + code("@testset") + ": escribe en la consola qué ha fallado (la expresión y, debajo, con qué valores) y lanza este error, que detiene el programa." : "") +
+      errorDeNombre(p) +
       (/ is ambiguous\./.test(p.error || "") ? " Hay varios métodos que encajan y ninguno es más específico que los demás, así que Julia no elige: es una <b>ambigüedad</b>. El mensaje dice qué método habría que añadir para resolverla." : "");
     if (p.tipo === "captura") {
       // catch e: la variable del error es la local nueva del catch
@@ -749,6 +819,7 @@ function dibujaTraza(el, C, D) {
         : "El bucle termina: el programa sigue después de él.") + desap;
     }
     { const lt = (L[p.linea - 1] || "").trim();
+      if (/^(using|import)\s+\./.test(lt)) return narraUso(p, lt);
       const us = lt.match(/^using\s+(.+)$/);
       if (us && us[1].trim() === "Test") return "Se carga " + code("Test") + ", la biblioteca de pruebas. Viene con Julia, así que no hay que instalarla: basta con " + code("using") + ". Desde esta línea existen " + code("@test") + ", " + code("@test_throws") + " y " + code("@testset") + ".";
       if (us) {
@@ -770,7 +841,7 @@ function dibujaTraza(el, C, D) {
       const m = p.marcos[p.marcos.length - 1], args = m.orden.filter(a => m.vars[a]);
       return "Se llama a " + code(m.llamada) + ". Julia le da a la función un espacio propio en la memoria" +
         (args.length ? ", con sus argumentos: " + args.map(a => code(a) + " vale " + esc(muestra(m.vars[a])) + deFuera(m.vars[a], p.estado)).join(", ") : "") +
-        ". El programa salta a la función" + (m.desde && m.desde !== p.linea ? " y la línea " + m.desde + " se queda esperando el resultado." : ".") + eleccion(p, m, args);
+        ". El programa salta a la función" + (m.desde && m.desde !== p.linea ? " y la línea " + m.desde + " se queda esperando el resultado." : ".") + eleccion(p, m, args) + deModulo(p, m);
     }
     if (p.tipo === "devuelve")
       return code(p.funcion) + (p.valor === "nothing" ? " termina sin devolver nada útil (" + code("nothing") + ")" : " termina y devuelve " + code(p.valor)) +
@@ -875,6 +946,15 @@ function dibujaTraza(el, C, D) {
         if (b.plot) extra = barrasTxtDe(lt, b.plot.sp[0]);
         if (b.plot && !p.grafico) extra += " Como la línea es una asignación, Julia no lo dibuja: el gráfico ya existe en la memoria, pero aún no se ve.";
         if (b.t === "Expr") extra += exprCreacion(lt, p, prev);
+        if (b.t === "Module" && b.modulo) {       // module Notas … end (capítulo 23)
+          const exp = b.modulo.filter(e => e.exporta), dentro = b.modulo.filter(e => !e.exporta);
+          const primero = !P.slice(0, P.indexOf(p)).some(x => Object.values(x.estado || {}).some(v => v.modulo));
+          frases.push("Se define el módulo " + code(n) + ": un <b>espacio de nombres</b> propio, una caja con sus variables y sus funciones. Dentro hay " + b.modulo.length + (b.modulo.length === 1 ? " nombre: " : " nombres: ") + yLista(b.modulo.map(e => code(e.nombre))) + ". " +
+            (exp.length ? "Exporta " + yLista(exp.map(e => code(e.nombre))) + ": " + (exp.length === 1 ? "es el que se podrá" : "son los que se podrán") + " usar sin escribir " + code(n + ".") + " delante, después de " + code("using ." + n) + "." : "No exporta nada.") +
+            (dentro.length ? " " + yLista(dentro.map(e => code(e.nombre))) + (dentro.length === 1 ? " se queda" : " se quedan") + " dentro: desde fuera se escribe " + code(n + "." + dentro[0].nombre) + "." : "") +
+            " Las funciones de dentro todavía no se ejecutan." + (primero ? " Un paquete, como " + code("DataFrames") + ", es por dentro un módulo como este, con su propio nombre y lo que exporta." : ""));
+          continue;
+        }
         if (b.t === "function" && n.startsWith("@")) { frases.push("Se define la macro " + code(n) + ": una función especial que recibe <b>código</b>, no valores, y devuelve código. Cuando una línea la use, Julia ejecutará primero la macro y luego el código que devuelva, en lugar de lo escrito."); continue; }
         if (b.t === "function" && /@eval\b|\beval\(/.test(lt)) { frases.push("Se crea " + code(n) + ", una función que no está escrita en el programa con ese nombre: la ha definido " + code(/@eval/.test(lt) ? "@eval" : "eval") + " con el código que el programa acaba de construir. El programa escribe código, y ese código se ejecuta."); continue; }
         frases.push("Se crea " + code(n) + ", " + quees(b) + "." + extra + (b.local && !mp ? " Es una variable local del bucle." : "")); continue;
@@ -1066,10 +1146,15 @@ function dibujaTraza(el, C, D) {
       else if (/^@test\s+/.test(linea)) frases.push(code("@test") + " comprueba que " + code(linea.replace(/^@test\s+/, "")) + " es <code>true</code>: lo es, así que la prueba <b>pasa</b>, y Julia escribe «Test Passed».");
       else if (/^@show\b/.test(linea)) frases.push(code("@show") + " escribe en la consola la expresión y su valor: " + muestra1 + ".");
       else if (/^print(ln)?\(/.test(linea)) frases.push(code(linea.match(/^print(ln)?/)[0]) + " escribe en la consola " + muestra1 + (/^println/.test(linea) ? ", y salta de línea." : "."));
+      else if (linea === "VERSION") frases.push("Escribir solo " + code("VERSION") + " hace que Julia muestre su valor: es la versión de Julia que está ejecutando el programa, " + muestra1 + ". Es la del libro, y la que imita el laboratorio.");
       else if (/^[\w.!]+$/.test(linea)) frases.push("Escribir solo " + code(linea) + " hace que Julia muestre su valor en la consola" + (colaV || cola));
       else if (bang && esVector) frases.push(code(bang) + " devuelve el vector modificado, y Julia lo muestra en la consola" + cola);
       else if (!/(^|[^=!<>≈])=($|[^=])/.test(linea.replace(/"[^"]*"/g, ""))) {
         frases.push("La línea es una expresión: Julia calcula " + code(linea) + " y muestra su valor en la consola" + cola);
+        if (/v"[^"]*"\s*(<|>|<=|>=|==)\s*v"/.test(linea)) frases.push("Los números de versión se comparan parte a parte, como números: primero el mayor, después el menor y al final el parche. Por eso " + code('v"1.10.0"') + " va después de " + code('v"1.9.2"') + ": 10 es más que 9.");
+        const tx = linea.match(/^"([\d.]+)"\s*(<|>)\s*"([\d.]+)"$/);
+        if (tx) { let k = 0; while (k < tx[1].length && tx[1][k] === tx[3][k]) k++;
+          frases.push("Son <b>textos</b>, no versiones: Julia los compara letra a letra. Las " + k + " primeras letras son iguales (" + code(tx[1].slice(0, k)) + ") y, en la siguiente, " + code(tx[1][k] || "") + " va " + ((tx[1][k] || "") < (tx[3][k] || "") ? "antes" : "después") + " que " + code(tx[3][k] || "") + ": como en un diccionario, sin mirar qué número forman."); }
         if (/===/.test(linea)) frases.push(/(^|[^=!])==($|[^=])/.test(linea) ? code("==") + " compara los valores, casilla a casilla; " + code("===") + " pregunta si los dos lados son el <b>mismo objeto</b> de la memoria." : code("===") + " no compara los valores: pregunta si los dos lados son el <b>mismo objeto</b> de la memoria.");
         // una función definida con eval no tiene firma escrita en el programa: el visualizador no entra en ella
         const fe = (linea.match(/^(\w+!?)\(/) || [])[1], fv = fe && p.estado[fe];
@@ -1143,6 +1228,7 @@ function dibujaTraza(el, C, D) {
     if (v.plot) return '<span class="tipo" title="' + esc(v.t) + '">' + esc(v.t) + '</span><span class="lon">' + seriesTxt(nSeries(v)) + "</span>";
     if (v.d) return '<span class="tipo">' + esc(v.t) + '</span><span class="lon">' + v.d.join(" × ") + " (filas × columnas)</span>";
     if (v.df) return '<span class="tipo">DataFrame</span><span class="lon">' + longitud(v) + " × " + v.cols.length + " (filas × columnas)</span>";
+    if (v.modulo) return '<span class="tipo">Module</span><span class="lon">' + v.modulo.length + (v.modulo.length === 1 ? " nombre" : " nombres") + "</span>";
     if (v.expr) return '<span class="tipo">Expr</span><span class="lon">' + v.expr.a.length + (v.expr.a.length === 1 ? " argumento" : " argumentos") + '</span><span class="loc">mutable</span>' + (v.local ? '<span class="loc">local</span>' : "");
     const lon = v.dict ? v.k.length + (v.k.length === 1 ? " pareja" : " parejas") : v.e || v.t === "function" ? (v.t === "function" && v.m > 1 ? v.m + " métodos" : "") : v.tupla ? v.el.length + (v.el.length && v.el.every(e => e.nombre) ? (v.el.length === 1 ? " campo" : " campos") : v.el.length === 1 ? " elemento" : " elementos") : v.v ? "longitud " + longitud(v).toLocaleString("es-ES") : "";
     return '<span class="tipo" title="' + esc(v.t) + '">' + esc(v.t === "function" ? "función" : corta(v.t)) + "</span>" + (lon ? '<span class="lon">' + lon + "</span>" : "") + (v.mutable ? '<span class="loc">mutable</span>' : "") + (v.local ? '<span class="loc">local</span>' : "");
@@ -1207,6 +1293,11 @@ function dibujaTraza(el, C, D) {
     if (v.e && C.letras && v.t === "Char") { const c = sinComillas(v.v[0]); return '<span class="escalar">' + esc(v.v[0]) + '</span><span class="codigo">código ' + (c.length ? c.codePointAt(0) : "") + "</span>"; }
     if (v.e) return '<span class="escalar">' + esc(v.v[0]) + "</span>";
     if (v.d) return rejilla(v, a, op.celda, op.marcadas);
+    if (v.modulo) return '<div class="modulo">' + (v.modulo.length ? v.modulo.map(e => {         // un módulo: sus nombres, y cuáles exporta
+      const ea = a && a.modulo ? (a.modulo.find(x => x.nombre === e.nombre) || {}).v : null;
+      return '<div class="elem' + (a && a.modulo && (!ea || !igual(ea, e.v)) ? " cambia" : "") + '"><div class="elem-cab"><span class="nom">' + esc(e.nombre) + "</span>" + cabecera(e.v) +
+        (e.exporta ? '<span class="exp">exporta</span>' : '<span class="noexp">solo dentro</span>') + "</div>" + (e.v.t === "function" ? "" : valor(e.v, ea)) + "</div>";
+    }).join("") : '<div class="otro">— vacío —</div>') + "</div>";
     if (v.tupla) return '<div class="lista">' + v.el.map((e, i) => {
       const ea = a && a.el && a.el[i] ? a.el[i].v : null;
       return '<div class="elem' + (a && (!ea || !igual(ea, e.v)) ? " cambia" : "") + '"><div class="elem-cab"><span class="nom">' + (e.nombre ? esc(e.nombre) : "[" + (i + 1) + "]") + "</span>" + cabecera(e.v) + "</div>" + valor(e.v, ea) + "</div>";
