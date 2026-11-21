@@ -385,6 +385,7 @@ const EJEMPLOS = [
   { nombre: "Una ecuación", codigo: "function biseccion(f, a, b; tol = 0.001)\n    while b - a > tol\n        m = (a + b) / 2\n        if f(a) * f(m) <= 0\n            b = m\n        else\n            a = m\n        end\n    end\n    return (a + b) / 2\nend\n\ng(x) = x^3 - x - 2\nr = biseccion(g, 1, 2)" },
   { nombre: "El café que se enfría", codigo: "k = 0.1\nT = 90.0\nt = 0.0\nh = 2.0\nwhile t < 20\n    T = T + h * (-k * (T - 20))\n    t += h\nend\nT", tabla: "t, T" },
   { nombre: "Medidas con ruido", codigo: "using Statistics, Random\nRandom.seed!(3)\nmedidas = 20.0 .+ 0.5 .* randn(8)\nmedia = mean(medidas)\ndesviacion = std(medidas)\nmargen = desviacion / sqrt(8)" },
+  { nombre: "Tipos con parámetros", codigo: "struct Punto{T<:Real}\n    x::T\n    y::T\nend\nque_es(p::Punto{Int64}) = \"un punto de enteros\"\nque_es(p::Punto) = \"un punto de otro tipo\"\np = Punto(3, 4)\nq = Punto(1.5, 2.0)\nque_es(p)\nque_es(q)\ntypeof(q)" },
   { nombre: "Un bucle que suma", codigo: "notas = [9.0, 6.5, 4.0, 7.5]\ntotal = 0.0\nfor i in eachindex(notas)\n    if notas[i] >= 5\n        total += notas[i]\n    end\nend\ntotal", tabla: "i, notas[i], total" },
   { nombre: "Una función", codigo: "function media(v)\n    s = 0.0\n    for x in v\n        s += x\n    end\n    return s / length(v)\nend\n\nm = media([2, 4, 9])\nprintln(\"La media es \", m)" },
   { nombre: "b = a no copia", codigo: "a = [1, 2, 3]\nb = a\nb[1] = 100\na\nc = copy(a)\nc[1] = 0\na" },
@@ -588,6 +589,15 @@ function dibujaTraza(el, C, D) {
     return "un valor de tipo " + code(v.t);
   }
 
+  // con varios métodos, qué método ha elegido Julia (el de la línea a la que salta) para estos tipos
+  function eleccion(p, m, args) {
+    const f = (p.estado || {})[m.nombre];
+    if (!f || f.t !== "function" || !(f.m > 1)) return "";
+    const sig = ((L[p.linea - 1] || "").match(new RegExp("^\\s*(?:function\\s+)?(" + m.nombre.replace(/[!.]/g, "\\$&") + "\\(.*?\\))")) || [])[1];
+    if (!sig) return "";
+    const ts = args.map(a => m.vars[a] && m.vars[a].t).filter(Boolean);
+    return " Como " + code(m.nombre) + " tiene " + f.m + " métodos, Julia elige el más específico que encaja con " + (ts.length === 1 ? "un " + code(ts[0]) : "estos tipos (" + ts.map(code).join(", ") + ")") + ": " + code(sig) + ", el de la línea " + p.linea + ".";
+  }
   function narra(p, prev) {
     if (p.tipo === "inicio") return "El programa está listo. Pulsa «Paso ▶» para ejecutar la primera línea.";
     if (p.tipo === "error") return "Julia se detiene en la línea " + p.linea + " con un error" + (p.marcos && p.marcos.length ? ", dentro de " + code(p.marcos[p.marcos.length - 1].llamada) : "") + ". Lo que viene detrás ya no se ejecuta.";
@@ -629,7 +639,7 @@ function dibujaTraza(el, C, D) {
       const m = p.marcos[p.marcos.length - 1], args = m.orden.filter(a => m.vars[a]);
       return "Se llama a " + code(m.llamada) + ". Julia le da a la función un espacio propio en la memoria" +
         (args.length ? ", con sus argumentos: " + args.map(a => code(a) + " vale " + esc(muestra(m.vars[a]))).join(", ") : "") +
-        ". El programa salta a la función" + (m.desde && m.desde !== p.linea ? " y la línea " + m.desde + " se queda esperando el resultado." : ".");
+        ". El programa salta a la función" + (m.desde && m.desde !== p.linea ? " y la línea " + m.desde + " se queda esperando el resultado." : ".") + eleccion(p, m, args);
     }
     if (p.tipo === "devuelve")
       return code(p.funcion) + (p.valor === "nothing" ? " termina sin devolver nada útil (" + code("nothing") + ")" : " termina y devuelve " + code(p.valor)) +
@@ -690,12 +700,15 @@ function dibujaTraza(el, C, D) {
         frases.push("Se crea " + code(n) + ": un vector <b>nuevo</b> con las casillas de " + code(trozo[1]) + " que elige " + code("[" + trozo[2] + "]") + (k ? ", " + k + (k === 1 ? " elemento" : " elementos") : ", ninguna: está vacío") + " (" + code(b.t) + ")."); continue;
       }
       if (!a && copia && b.id) { frases.push("Se crea " + code(n) + ", una <b>copia</b> de " + code(copia) + ": " + (b.d ? "una matriz nueva" : "un vector nuevo") + ", con los mismos valores pero independiente."); continue; }
-      if (!a && b.t === "DataType" && /^\s*(mutable\s+struct|struct|abstract\s+type)\s/.test(L[p.linea - 1] || "")) {     // la definición de un tipo
-        const lt = L[p.linea - 1], abstracto = /abstract/.test(lt), padre = (lt.match(/<:\s*(\w+)/) || [])[1];
+      if (!a && (b.t === "DataType" || b.t === "UnionAll") && /^\s*(mutable\s+struct|struct|abstract\s+type)\s/.test(L[p.linea - 1] || "")) {     // la definición de un tipo
+        const lt = L[p.linea - 1], abstracto = /abstract/.test(lt);
+        const pm = lt.match(/(?:struct|type)\s+\w+\{([^}]*)\}/);       // struct Punto{T<:Real}: sus parámetros
+        const padre = (lt.replace(/\{[^}]*\}/, "").match(/<:\s*(\w+)/) || [])[1];
+        const params = pm ? pm[1].split(",").map(x => x.trim()).map(x => { const m = x.match(/^(\w+)\s*<:\s*(\w+)$/); return m ? code(m[1]) + ", que puede ser cualquier subtipo de " + code(m[2]) : code(x) + ", que puede ser cualquier tipo"; }) : [];
         const campos = [];
         if (!abstracto) for (let k = p.linea; k < L.length && !/^\s*end\b/.test(L[k]); k++) { const c = (L[k].match(/^\s*(\w+)/) || [])[1]; if (c) campos.push(c); }
         frases.push(abstracto ? "Se define " + code(n) + ", un tipo <b>abstracto</b>: no tiene campos ni se pueden crear valores suyos. Sirve para agrupar otros tipos, que dirán que son de este con " + code("<: " + n) + "."
-          : "Se define el tipo " + code(n) + (/mutable/.test(lt) ? ", <b>mutable</b>," : "") + " con " + campos.length + (campos.length === 1 ? " campo" : " campos") + ": " + campos.map(code).join(", ") + "." + (padre ? " Es un subtipo de " + code(padre) + "." : "") +
+          : "Se define el tipo " + code(n) + (/mutable/.test(lt) ? ", <b>mutable</b>," : "") + (params.length ? ", con " + (params.length === 1 ? "un parámetro, " : params.length + " parámetros: ") + params.join("; ") + "," : "") + " con " + campos.length + (campos.length === 1 ? " campo" : " campos") + ": " + campos.map(code).join(", ") + "." + (padre ? " Es un subtipo de " + code(padre) + "." : "") +
             " Es solo el molde: todavía no hay ningún valor de este tipo. Se crean llamando a " + code(n + "(…)") + ", con un valor para cada campo.");
         continue;
       }
@@ -803,7 +816,8 @@ function dibujaTraza(el, C, D) {
           (otros.length ? " " + otros.map(code).join(" y ") + " no cambia: sigue siendo el vector de antes." : ""));
         hechos.push(n); continue;
       }
-      frases.push(code(n) + " cambia: ahora es " + quees(b) + ".");
+      if (a.t === "DataType" && b.t === "DataType") frases.push(code(n) + " valía el tipo " + code(a.r) + " y ahora vale el tipo " + code(b.r) + ".");
+      else frases.push(code(n) + " cambia: ahora es " + quees(b) + ".");
     }
     // un vector que es también el campo de un objeto: e.notas y notas son el mismo vector
     for (const n of hechos) {

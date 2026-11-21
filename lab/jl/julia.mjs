@@ -124,9 +124,9 @@ class Programa {
     if (x.T === "Tuple" && prof < 4 && x.a.length <= 30) return { t: V.tipo(x), tupla: true, el: x.a.map(e => ({ v: this.describe(e, prof + 1) })) };
     if (x.T === "NamedTuple" && prof < 4 && x.a.length <= 30) return { t: V.tipo(x), tupla: true, el: x.a.map((e, i) => ({ nombre: x.nombres[i], v: this.describe(e, prof + 1) })) };
     if (x.T === "Dict" && x.t.count <= 30) { const es = x.t.entradas(); return { t: V.tipo(x), dict: true, k: es.map(([k]) => V.repr(k)), v: es.map(([, w]) => V.repr(w)), id: this.unId(x) }; }
-    if (x.T === "Tipo") return { t: "DataType", r: this.prim.muestra(x) };
+    if (x.T === "Tipo") return { t: x.unionall ? "UnionAll" : "DataType", r: this.prim.muestra(x) };
     if (x.T === "Struct" && prof < 4) {          // como trazar.jl: una ficha con sus campos; si es mutable, con identidad
-      const d = { t: x.tipo, tupla: true, struct: true, el: this.prim.tipos.get(x.tipo).campos.map((c, i) => ({ nombre: c.nombre, v: this.describe(x.a[i], prof + 1) })) };
+      const d = { t: V.tipo(x), tupla: true, struct: true, el: this.prim.tipos.get(x.tipo).campos.map((c, i) => ({ nombre: c.nombre, v: this.describe(x.a[i], prof + 1) })) };
       if (x.mut) { d.mutable = true; d.id = this.unId(x); }
       return d;
     }
@@ -306,7 +306,7 @@ class Programa {
         if (nivel !== 0) throw new NoSoportado("definir un tipo dentro de un bloque");
         this.va(l);
         const nombre = this.defineTipo(n);
-        this.asigna(nombre, { T: "Tipo", nombre }, sc);
+        this.asigna(nombre, this.prim.tipos.get(nombre).params ? { T: "Tipo", nombre, unionall: true } : { T: "Tipo", nombre }, sc);
         this.paso(l, sc);
         return NADA;
       }
@@ -426,12 +426,26 @@ class Programa {
     if (cab.type !== "type_head") throw new NoSoportado("esta definición de tipo");
     let [nom] = hijos(cab), padre = "Any";
     if (nom.type === "binary_expression" && opDe(nom) === "<:") { const [a, b] = hijos(nom); nom = a; padre = b.text; }
-    if (nom.type !== "identifier") throw new NoSoportado("los tipos con parámetros (" + nom.text + ")");
+    // struct Punto{T<:Real}: los parámetros, cada uno con su cota (Any si no la tiene)
+    let params = null;
+    if (nom.type === "parametrized_type_expression") {
+      const [id, ll] = hijos(nom);
+      params = hijos(ll).map(q => {
+        if (q.type === "identifier") return { nombre: q.text, cota: "Any" };
+        if (q.type === "binary_expression" && opDe(q) === "<:") { const [x, c] = hijos(q); if (x.type === "identifier") return { nombre: x.text, cota: this.nombreTipo(c) }; }
+        throw new NoSoportado("este parámetro de tipo (" + q.text + ")");
+      });
+      nom = id;
+    }
+    if (nom.type !== "identifier") throw new NoSoportado("esta definición de tipo (" + nom.text + ")");
     const abstracto = n.type === "abstract_definition";
+    if (params && abstracto) throw new NoSoportado("tipos abstractos con parámetros");
     const def = { nombre: nom.text, padre, abstracto, mutable: !abstracto && /^mutable\b/.test(n.text), campos: [] };
+    if (params) def.params = params;
+    const esParam = t => params && t.type === "identifier" && params.some(q => q.nombre === t.text);
     for (const c of campos) {
       if (c.type === "identifier") def.campos.push({ nombre: c.text, tipo: null });
-      else if (c.type === "typed_expression") { const [a, t] = hijos(c); def.campos.push({ nombre: a.text, tipo: this.nombreTipo(t) }); }
+      else if (c.type === "typed_expression") { const [a, t] = hijos(c); def.campos.push({ nombre: a.text, tipo: esParam(t) ? t.text : this.nombreTipo(t) }); }
       else throw new NoSoportado("esto dentro de un struct (" + c.type.replace(/_/g, " ") + ")");
     }
     this.prim.defineTipo(def);
@@ -638,6 +652,7 @@ class Programa {
         const x = this.valor(obj, sc);
         return this.prim.indexa(x, this.indices(x, ind, sc));
       }
+      case "parametrized_type_expression": return { T: "Tipo", nombre: this.nombreTipo(n) };     // Punto{Int64}, Rational{Int64}
       case "macrocall_expression": return this.macro(n, sc);
       case "arrow_function_expression": return this.anonima(n, sc);
       case "comprehension_expression": return this.comprension(n, sc);
@@ -809,6 +824,10 @@ class Programa {
     const lista = n.namedChildren.find(c => c.type === "argument_list");
     if (fn.type === "parametrized_type_expression" && !difundir) {     // Dict{String, Int}()
       const [nom, llaves] = hijos(fn);
+      if (this.prim.esTipoPropio(nom.text) && !this.glob.has(nom.text + "!")) {        // Punto{Float64}(1, 2)
+        const [args, kw] = this.argumentos(lista, sc);
+        return this.prim.creaStruct(nom.text, args, kw, hijos(llaves).map(c => this.nombreTipo(c)));
+      }
       if (nom.text !== "Dict") throw new NoSoportado("el constructor " + fn.text);
       const ps = hijos(llaves).map(c => this.nombreTipo(c));
       if (ps.length !== 2) throw new NoSoportado("Dict con " + ps.length + " parámetros");
@@ -827,10 +846,18 @@ class Programa {
   }
   // el nombre de un tipo escrito en el programa: Int → Int64, Vector{Int} → Vector{Int64}
   nombreTipo(c) {
-    const NOMBRES = { Int: "Int64", Int64: "Int64", Float64: "Float64", String: "String", Char: "Char", Bool: "Bool", Any: "Any", Real: "Real", Integer: "Integer", AbstractString: "AbstractString", Number: "Number" };
+    const NOMBRES = { Int: "Int64", Int64: "Int64", Float64: "Float64", String: "String", Char: "Char", Bool: "Bool", Any: "Any", Real: "Real", Integer: "Integer", AbstractString: "AbstractString", Number: "Number",
+      Signed: "Signed", AbstractFloat: "AbstractFloat", AbstractChar: "AbstractChar", Nothing: "Nothing", Missing: "Missing" };
     if (c.type === "identifier" && NOMBRES[c.text]) return NOMBRES[c.text];
     if (c.type === "identifier" && this.prim.esTipoPropio(c.text)) return c.text;
-    if (c.type === "parametrized_type_expression") { const [nom, ll] = hijos(c); if (nom.text === "Vector") return "Vector{" + hijos(ll).map(x => this.nombreTipo(x)).join(", ") + "}"; }
+    if (c.type === "parametrized_type_expression") {
+      const [nom, ll] = hijos(c);
+      const [q] = hijos(ll);
+      if (nom.text === "Vector" && q && q.type === "unary_expression" && opDe(q) === "<:") return "Vector{<:" + this.nombreTipo(hijos(q)[hijos(q).length - 1]) + "}";
+      if (nom.text === "Vector") return "Vector{" + hijos(ll).map(x => this.nombreTipo(x)).join(", ") + "}";
+      if (nom.text === "Rational" && q && q.text === "Int64" && hijos(ll).length === 1) return "Rational{Int64}";
+      if (this.prim.esTipoPropio(nom.text) && this.prim.tipos.get(nom.text).params) return nom.text + "{" + hijos(ll).map(x => this.nombreTipo(x)).join(", ") + "}";
+    }
     throw new NoSoportado("el tipo " + c.text);
   }
   aplica(f, args, kw) {
@@ -985,6 +1012,7 @@ class Programa {
         case "typed_expression": return ESC(hijos(nodo)[0]) + "::" + ESC(hijos(nodo)[1]);
         case "field_expression": return ESC(hijos(nodo)[0]) + "." + hijos(nodo)[1].text;
         case "named_field": return hijos(nodo)[0].text + " = " + ESC(hijos(nodo)[1]);
+        case "parametrized_type_expression": { const [t, ll] = hijos(nodo); return ESC(t) + "{" + hijos(ll).map(c => ESC(c)).join(", ") + "}"; }
       }
       throw new NoSoportado("escribir «" + nodo.type.replace(/_/g, " ") + "»");
     };

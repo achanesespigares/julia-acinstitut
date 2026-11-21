@@ -6,8 +6,16 @@
 import * as V from "./valores.mjs";
 import { ErrorJulia, NoSoportado, B, errorMetodo, tipo, repr } from "./valores.mjs";
 
+// El árbol de los tipos de Julia que conoce el laboratorio (supertype de cada uno, como en Julia 1.13)
+export const PADRE_JULIA = {
+  Int64: "Signed", Signed: "Integer", Bool: "Integer", Integer: "Real", Float64: "AbstractFloat", AbstractFloat: "Real",
+  "Rational{Int64}": "Real", Real: "Number", Number: "Any", String: "AbstractString", AbstractString: "Any",
+  Char: "AbstractChar", AbstractChar: "Any", Nothing: "Any", Missing: "Any", DataType: "Type{T}", Symbol: "Any",
+};
+export const ABSTRACTOS_JULIA = new Set(["Any", "Number", "Real", "Integer", "Signed", "AbstractFloat", "AbstractString", "AbstractChar"]);
 // Lo específico que es un tipo al elegir método: cuanto más abajo en el árbol de tipos, más
-const PROF = { Any: 0, Number: 1, AbstractString: 1, Real: 2, String: 2, Integer: 3, AbstractFloat: 3, Int64: 4, Float64: 4, Bool: 4, Char: 1 };
+const PROF = { Char: 1 };
+const profJulia = t => { let k = 0; for (let x = t; x && x !== "Any"; x = PADRE_JULIA[x]) k++; return k; };
 
 export function tiposPropios(P, fn) {
   const tipos = new Map();          // nombre → { nombre, campos: [{ nombre, tipo }], mutable, padre, abstracto }
@@ -15,9 +23,13 @@ export function tiposPropios(P, fn) {
   P.esTipoPropio = n => tipos.has(n);
   P.esSubtipo = (a, b) => {
     if (b === "Any" || a === b) return true;
-    for (let t = tipos.get(a); t; t = tipos.get(t.padre)) if (t.padre === b) return true;
+    const pa = /^(\w+)\{/.exec(a);                         // Punto{Int64} <: Punto
+    if (pa && pa[1] === b && tipos.has(b)) return true;
+    for (let t = tipos.get(pa ? pa[1] : a); t; t = tipos.get(t.padre)) if (t.padre === b) return true;
+    if (!tipos.has(a)) for (let x = PADRE_JULIA[a]; x; x = x === "Any" ? null : PADRE_JULIA[x]) if (x === b) return true;
     return false;
   };
+  P.conocido = t => tipos.has(t) || t in PADRE_JULIA || t === "Any" || /^\w+\{/.test(t) && tipos.has(/^(\w+)/.exec(t)[1]);
   const ancestros = n => { const r = [n]; for (let t = tipos.get(n); t && t.padre !== "Any"; t = tipos.get(t.padre)) r.push(t.padre); return r.concat("Any"); };
   // el supertipo común de varios tipos (typejoin): Circulo y Rectangulo → Figura; si no hay, Any
   const une = ts => { const [p, ...resto] = ts; return ancestros(p).find(a => resto.every(t => P.esSubtipo(t, a))) || "Any"; };
@@ -28,6 +40,7 @@ export function tiposPropios(P, fn) {
     if (!t || t === "Any") return 0;
     if (tipos.has(t)) return ancestros(t).length - 1;
     if (t in PROF) return PROF[t];
+    if (t in PADRE_JULIA) return profJulia(t);
     return 3;
   };
 
@@ -54,12 +67,28 @@ export function tiposPropios(P, fn) {
     if (["Real", "Number", "Integer", "AbstractFloat", "AbstractString"].includes(t)) { if (P.esDelTipo(x, t)) return x; throw errConvierte(x, t); }
     return V.convierte(x, t);
   };
-  P.creaStruct = (nombre, args, kw) => {
+  // con parámetros (struct Punto{T<:Real}): T sale de los argumentos, o se da explícito, Punto{Float64}(1, 2)
+  P.creaStruct = (nombre, args, kw, dados) => {
     const def = tipos.get(nombre);
     if (def.abstracto) throw new NoSoportado("construir un tipo abstracto");
     if (kw && kw.size) throw new NoSoportado("argumentos con nombre al construir un " + nombre);
     if (args.length !== def.campos.length) throw errorMetodo(nombre, args);
-    return { T: "Struct", tipo: nombre, mut: def.mutable, a: def.campos.map((c, i) => P.aCampo(args[i], c.tipo)) };
+    if (!def.params) { if (dados) throw new NoSoportado(nombre + " no tiene parámetros"); return { T: "Struct", tipo: nombre, mut: def.mutable, a: def.campos.map((c, i) => P.aCampo(args[i], c.tipo)) }; }
+    let vals;
+    if (dados) {
+      if (dados.length !== def.params.length) throw new NoSoportado("dar " + dados.length + " parámetros a " + nombre);
+      def.params.forEach((q, k) => { if (!P.esSubtipo(dados[k], q.cota)) throw new ErrorJulia("TypeError: in " + nombre + ", in " + q.nombre + ", expected " + q.cota + ", got Type{" + dados[k] + "}"); });
+      vals = dados;
+    } else {
+      vals = def.params.map(q => {
+        const ts = def.campos.map((c, i) => c.tipo === q.nombre ? tipo(args[i]) : null).filter(Boolean);
+        if (!ts.length) throw new NoSoportado("deducir el parámetro " + q.nombre + " de " + nombre);
+        if (ts.some(t => t !== ts[0]) || !P.conocido(ts[0]) || !P.esSubtipo(ts[0], q.cota)) throw errorMetodo(nombre, args);
+        return ts[0];
+      });
+    }
+    const sust = t => { const k = def.params.findIndex(q => q.nombre === t); return k < 0 ? t : vals[k]; };
+    return { T: "Struct", tipo: nombre, params: vals, mut: def.mutable, a: def.campos.map((c, i) => P.aCampo(args[i], sust(c.tipo))) };
   };
   const errCampo = (x, c) => new ErrorJulia("FieldError: type " + x.tipo + " has no field `" + c + "`, available fields: " + tipos.get(x.tipo).campos.map(k => "`" + k.nombre + "`").join(", "));
   P.leeCampo = (x, c) => {
@@ -84,9 +113,24 @@ export function tiposPropios(P, fn) {
   const T = nombre => ({ T: "Tipo", nombre });
   fn.supertype = ([t]) => {
     if (!t || t.T !== "Tipo") throw errorMetodo("supertype", [t]);
-    if (tipos.has(t.nombre)) return T(tipos.get(t.nombre).padre);
+    const pa = /^(\w+)\{/.exec(t.nombre);
+    if (tipos.has(t.nombre) && !t.unionall) return T(tipos.get(t.nombre).padre);
+    if (pa && tipos.has(pa[1])) return T(tipos.get(pa[1]).padre);
+    if (t.nombre === "Any") return T("Any");
+    if (t.nombre in PADRE_JULIA && t.nombre !== "DataType") return T(PADRE_JULIA[t.nombre]);
     throw new NoSoportado("supertype de " + t.nombre);
   };
+  const clase = t => {
+    if (!t || t.T !== "Tipo") return null;
+    if (t.unionall) return "unionall";
+    if (tipos.has(t.nombre)) return tipos.get(t.nombre).abstracto ? "abstracto" : "concreto";
+    if (/^\w+\{/.test(t.nombre) && tipos.has(/^(\w+)/.exec(t.nombre)[1])) return "concreto";
+    if (ABSTRACTOS_JULIA.has(t.nombre)) return "abstracto";
+    if (t.nombre in PADRE_JULIA || /^(Vector|Tuple)\{[\w{}, ]+\}$/.test(t.nombre)) return "concreto";
+    return null;
+  };
+  fn.isabstracttype = ([t]) => { const c = clase(t); if (!c) throw new NoSoportado("isabstracttype de " + V.repr(t)); return B(c === "abstracto"); };
+  fn.isconcretetype = ([t]) => { const c = clase(t); if (!c) throw new NoSoportado("isconcretetype de " + V.repr(t)); return B(c === "concreto"); };
   fn.fieldnames = ([t]) => {
     if (!t || t.T !== "Tipo") throw errorMetodo("fieldnames", [t]);
     if (!tipos.has(t.nombre)) throw new NoSoportado("fieldnames de " + t.nombre);

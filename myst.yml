@@ -40,6 +40,9 @@ project:
         - file: capitulos/14-ecuaciones-optimizacion.md
         - file: capitulos/15-ecuaciones-diferenciales.md
         - file: capitulos/16-datos-estadistica.md
+    - title: Parte IV · Julia por dentro
+      children:
+        - file: capitulos/17-sistema-tipos.md
 site:
   template: book-theme
   options:

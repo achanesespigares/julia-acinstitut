@@ -20,6 +20,7 @@ export const TIPOS = {
   Int: T("Int64"), Int64: T("Int64"), Float64: T("Float64"), String: T("String"), Bool: T("Bool"), Char: T("Char"),
   Any: T("Any"), Number: T("Number"), Real: T("Real"), Integer: T("Integer"), AbstractFloat: T("AbstractFloat"),
   Rational: T("Rational"), Nothing: T("Nothing"), Missing: T("Missing"),
+  Signed: T("Signed"), AbstractString: T("AbstractString"), AbstractChar: T("AbstractChar"), DataType: T("DataType"),
 };
 // Nombres de Julia que existen pero que el laboratorio aún no sabe ejecutar
 export const CONOCIDAS = new Set(("big BigInt BigFloat Float32 Int32 Int8 UInt8 UInt Complex complex im mean median " +
@@ -79,7 +80,10 @@ export function crearPrimitivas(prog) {
     if (op === "≤") op = "<=";
     if (op === "≥") op = ">=";
     if (op === "isa") { if (b.T !== "Tipo") throw new ErrorJulia("TypeError: in isa, expected Type, got a value of type " + tipo(b)); return B(P.esDelTipo(a, b.nombre)); }
-    if (op === "<:" && a.T === "Tipo" && b.T === "Tipo") { if (!P.esTipoPropio(a.nombre) && a.nombre !== b.nombre) throw new NoSoportado("<: entre tipos de Julia"); return B(P.esSubtipo(a.nombre, b.nombre)); }
+    if (op === "<:" && a.T === "Tipo" && b.T === "Tipo") {
+      if (a.unionall || b.unionall || !P.conocido(a.nombre) || !P.conocido(b.nombre)) throw new NoSoportado("<: entre " + a.nombre + " y " + b.nombre);
+      return B(P.esSubtipo(a.nombre, b.nombre));
+    }
     if (op === "===") return B(P.identicos(a, b));
     if (op === "!==") return B(!P.identicos(a, b));
     if (op === "∈" || op === "in") return P.pertenece(a, b);
@@ -337,6 +341,11 @@ export function crearPrimitivas(prog) {
     return V.vec(el, vals.map(v => V.convierte(v, el)));
   };
   P.vectorTipado = (el, vals) => {
+    if (["Real", "Number", "Integer", "Signed", "AbstractFloat"].includes(el)) {         // Real[1, 2.5]: cada uno con su tipo
+      for (const v of vals) if (!P.esDelTipo(v, el)) throw V.errorMetodo("convert", null, "Cannot `convert` an object of type " + tipo(v) + " to an object of type " + el);
+      if (vals.some(v => !["Int64", "Float64", "Bool", "Rational"].includes(v.T))) throw new NoSoportado("un vector de " + el + " con estos valores");
+      return V.vec(el, [...vals]);
+    }
     if (!["Int64", "Float64", "String", "Bool", "Char", "Any", "SubString{String}", "AbstractString"].includes(el) && !P.esTipoPropio(el)) throw new NoSoportado("vectores de " + el);
     return V.vec(el, vals.map(v => V.convierte(v, el)));
   };
@@ -441,6 +450,9 @@ export function crearPrimitivas(prog) {
       case "Number": return NUM(v);
       case "Real": return NUM(v);
       case "Integer": return esEnteroLike(v);
+      case "Signed": return v.T === "Int64";
+      case "AbstractChar": return v.T === "Char";
+      case "Nothing": case "Missing": return v.T === tt;
       case "AbstractFloat": case "Float64": return v.T === "Float64";
       case "Int64": case "Bool": case "Char": return v.T === tt;
       case "String": case "AbstractString": return v.T === "String";
@@ -452,7 +464,9 @@ export function crearPrimitivas(prog) {
     }
     if (/^Matrix\{(\w+)\}$/.test(tt)) return MX.esMatriz(v) && !v.vista && !v.bit && v.el === tt.slice(7, -1);
     if (/^Vector\{(\w+)\}$/.test(tt)) return v.T === "Vector" && v.el === tt.slice(7, -1);
+    if (/^Vector\{<:(\w+)\}$/.test(tt)) return v.T === "Vector" && P.esSubtipo(v.el, tt.slice(9, -1));
     if (P.esTipoPropio(tt)) return v.T === "Struct" && P.esSubtipo(v.tipo, tt);
+    if (/^\w+\{/.test(tt) && P.esTipoPropio(/^(\w+)/.exec(tt)[1])) return v.T === "Struct" && tipo(v) === tt;
     throw new NoSoportado("el tipo " + t + " en un argumento");
   };
   // Int(x), Float64(x)…
@@ -509,6 +523,27 @@ export function crearPrimitivas(prog) {
   fn.println = args => escribe(args, true);
   fn.print = args => escribe(args, false);
   fn.typeof = ([x]) => T(tipo(x));
+  fn.eltype = ([x]) => {
+    if (x.T === "Tipo") { const m = /^Vector\{(.+)\}$/.exec(x.nombre); if (m) return T(m[1]); throw new NoSoportado("eltype de " + x.nombre); }
+    if (V.esVector(x) || MX.esMatriz(x)) return T(V.eltipo(x));
+    if (x.T === "String") return T("Char");
+    if (x.T === "Dict") return T("Pair{" + x.K + ", " + x.V + "}");
+    if (x.T === "Tuple" && x.a.length && x.a.every(e => tipo(e) === tipo(x.a[0]))) return T(tipo(x.a[0]));
+    throw new NoSoportado("eltype de un " + tipo(x));
+  };
+  // promote y promote_type con Bool, Int64, Rational{Int64} y Float64 (las reglas de promote_rule de Julia)
+  const RANGO_PROMO = { Bool: 0, Int64: 1, "Rational{Int64}": 2, Float64: 3 };
+  const promoTipo = ts => {
+    if (!ts.every(t => t in RANGO_PROMO)) throw new NoSoportado("promocionar " + ts.join(", "));
+    const m = Math.max(...ts.map(t => RANGO_PROMO[t]));
+    return Object.keys(RANGO_PROMO).find(k => RANGO_PROMO[k] === m);
+  };
+  fn.promote_type = (args) => { if (!args.length || !args.every(a => a.T === "Tipo")) throw new NoSoportado("promote_type con estos argumentos"); return T(promoTipo(args.map(a => a.nombre))); };
+  fn.promote = (args) => {
+    if (!args.length) return { T: "Tuple", a: [] };
+    const t = promoTipo(args.map(tipo));
+    return { T: "Tuple", a: args.map(x => V.convierte(x, t)) };
+  };
   fn.sqrt = unNum("sqrt", x => { const v = aNum(x); if (v < 0) throw DOM_SQRT(v); return F(Math.sqrt(v)); });
   fn.cbrt = unNum("cbrt", x => F(Math.cbrt(aNum(x))));
   // exp, log, sin y cos con los algoritmos de Julia (matematicas.mjs): Math.exp y compañía no siempre dan su último dígito

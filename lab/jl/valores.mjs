@@ -52,7 +52,7 @@ export function tipo(x) {
     case "FloatRange": return LARGO_FLOAT;
     case "Tuple": return "Tuple{" + x.a.map(tipo).join(", ") + "}";
     case "Funcion": case "Primitiva": return "typeof(" + x.nombre + ")";
-    case "Tipo": return "DataType";
+    case "Tipo": return x.unionall ? "UnionAll" : "DataType";
     case "String": return x.sub ? "SubString{String}" : "String";
     case "Pair": return "Pair{" + tipo(x.a) + ", " + tipo(x.b) + "}";
     case "Dict": return "Dict{" + x.K + ", " + x.V + "}";
@@ -61,7 +61,7 @@ export function tipo(x) {
     case "Plot": return "Plots.Plot{Plots.GRBackend}";
     case "RNG": return GANCHOS.usaRandom && GANCHOS.usaRandom() ? "TaskLocalRNG" : "Random.TaskLocalRNG";
     case "Modulo": return "Module";
-    case "Struct": return x.tipo;
+    case "Struct": return x.params ? x.tipo + "{" + x.params.join(", ") + "}" : x.tipo;
     case "DataFrame": return "DataFrame";
     case "FilaDF": return "DataFrameRow{DataFrame, DataFrames.Index}";
     case "GrupoDF": return "GroupedDataFrame{DataFrame}";
@@ -201,7 +201,7 @@ export function repr(x, dentro = false) {
     case "FloatRange": return decimalesRango(x);
     case "Vector": case "BitVector": {
       const bools = x.T === "BitVector" || x.el === "Bool";
-      const pref = bools ? "Bool" : ["Any", "SubString{String}", "AbstractString"].includes(x.el) || !x.a.length ? x.el : "";
+      const pref = bools ? "Bool" : ["Any", "SubString{String}", "AbstractString", "Real", "Number", "Integer", "Signed", "AbstractFloat"].includes(x.el) || !x.a.length ? x.el : "";
       const fr = x.el === "Rational{Int64}";
       return pref + "[" + x.a.map(e => bools ? (e.v ? "1" : "0") : fr && e.T === "Rational" ? racTI(e) : repr(e, true)).join(", ") + "]";
     }
@@ -214,7 +214,7 @@ export function repr(x, dentro = false) {
     case "Plot": return "Plot{Plots.GRBackend() n=" + x.sp.series.length + "}";
     case "RNG": return "TaskLocalRNG()";
     case "Modulo": return x.nombre;
-    case "Struct": return x.tipo + "(" + x.a.map(e => repr(e)).join(", ") + ")";
+    case "Struct": return tipo(x) + "(" + x.a.map(e => repr(e)).join(", ") + ")";
     case "DataFrame": case "FilaDF": case "GrupoDF": return GANCHOS.muestraDF(x);      // show de un tipo propio: Alumna("Ana", 2, 9.0)
     case "Dict": {
       const es = x.t.entradas();
@@ -360,6 +360,9 @@ export function convierte(x, el) {
   if (x.T === "String" && el === "String") return { T: "String", v: x.v };
   if (x.T === "String" && el === "SubString{String}") return { T: "String", v: x.v, sub: true };
   if (x.T === "String" && el === "AbstractString") return x;
+  // un número en un contenedor de un tipo abstracto (Vector{Real}): se queda como está, si es de ese tipo
+  const ABS = { Real: ["Int64", "Float64", "Bool", "Rational"], Number: ["Int64", "Float64", "Bool", "Rational"], Integer: ["Int64", "Bool"], Signed: ["Int64"], AbstractFloat: ["Float64"] };
+  if (el in ABS && ABS[el].includes(x.T)) return x;
   if (el === "Float64" && esNumero(x)) return F(aNum(x));
   if (el === "Int64" && esNumero(x)) {
     if (x.T === "Bool") return I(x.v ? 1 : 0);
