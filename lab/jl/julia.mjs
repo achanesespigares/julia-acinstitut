@@ -15,6 +15,7 @@ import { crearPrimitivas, TIPOS, CONOCIDAS } from "./primitivas.mjs";
 import { NOMBRES_BASE, NOMBRES_PAQUETES } from "./nombres-base.mjs";
 import * as MX from "./matrices.mjs";
 import * as EX from "./expr.mjs";
+import * as ER from "./errores.mjs";
 
 V.GANCHOS.reprExpr = EX.quoteTop; V.GANCHOS.reprRaro = EX.reprRaro; V.GANCHOS.textoExpr = EX.textoExpr; V.GANCHOS.reprSimbolo = EX.reprSimbolo;
 
@@ -88,6 +89,9 @@ class Programa {
     this.ocultar = new Set(config.ocultar || []);
     this.salida = ""; this.firmas = new Map(); this.ids = new Map(); this.ext = new Map();
     this.mudo = 0; this.pendientes = new Set();
+    // capítulo 22: los errores que se están atrapando (para rethrow), cómo estaba la pila cuando un error salió de
+    // una función, las líneas donde estaba el programa al entrar en cada finally y los Base.showerror del programa
+    this.atrapados = []; this.alFallar = null; this.lineasFinally = []; this.showerr = null;
     this.prim = crearPrimitivas(this);
   }
 
@@ -283,7 +287,9 @@ class Programa {
       if (texto !== null) {
         const [est, orden] = this.foto();
         const p = { linea: this.actual, tipo: "error", error: texto, estado: est, orden, salida: this.salida, nfilas: this.filas.length };
-        if (this.pila.length) p.marcos = this.fotoMarcos();
+        // si el error salió de funciones del programa, sus marcos se cerraron al salir: se enseñan como estaban al fallar
+        const marcos = this.alFallar && this.alFallar.e === e ? this.alFallar.marcos : this.pila.length ? this.fotoMarcos() : null;
+        if (marcos && marcos.length) p.marcos = marcos;
         this.pasos.push(p);
       }
     }
@@ -301,6 +307,7 @@ class Programa {
       case "for_statement": return this.bucleFor(n, nivel, sc);
       case "while_statement": return this.bucleWhile(n, nivel, sc);
       case "if_statement": this.va(l); return this.siEntonces(n, nivel, sc);
+      case "try_statement": if (nivel > 0 && !final) { this.va(l); return this.intento(n, sc); } break;
       case "ternary_expression": {      // como sentencia, un ternario es un if para Julia: c ? a : b
         this.va(l);
         const [c, a, b] = hijos(n), v = this.valor(c, sc);
@@ -320,7 +327,7 @@ class Programa {
       case "using_statement": {       // using DataFrames, Statistics, LinearAlgebra: los paquetes que el laboratorio conoce
         if (nivel !== 0) throw new NoSoportado("using dentro de un bloque");
         const ps = hijos(n);
-        for (const p of ps) if (p.type !== "identifier" || !this.prim.paquetes[p.text]) throw new NoSoportado("cargar el paquete " + p.text + ": el laboratorio solo conoce DataFrames, Statistics, LinearAlgebra, Random y Plots");
+        for (const p of ps) if (p.type !== "identifier" || !this.prim.paquetes[p.text]) throw new NoSoportado("cargar el paquete " + p.text + ": el laboratorio solo conoce DataFrames, Statistics, LinearAlgebra, Random, Plots y Test");
         this.va(l);
         for (const p of ps) this.prim.carga(p.text);
         this.paso(l, sc);
@@ -635,8 +642,9 @@ class Programa {
       const [mod, q] = hijos(cal);
       let o = q && q.type === "quote_expression" ? q.namedChild(0) : null;
       if (o && o.type === "parenthesized_expression" && o.namedChildCount === 1) o = o.namedChild(0);      // Base.:(==)
-      if (mod.text !== "Base" || !o || o.type !== "operator") throw new NoSoportado("añadir métodos a " + cal.text);
-      op = o.text; nombre = "Base." + q.text;
+      if (mod.text === "Base" && q && q.type === "identifier" && q.text === "showerror") op = "showerror";      // capítulo 22
+      else if (mod.text !== "Base" || !o || o.type !== "operator") throw new NoSoportado("añadir métodos a " + cal.text);
+      else { op = o.text; nombre = "Base." + q.text; }
     } else if (cal.type !== "identifier") throw new NoSoportado("esta forma de definir funciones");
     const esVar = t => vars && vars.some(v => v.nombre === t);
     const tipoDe = t => {
@@ -674,6 +682,17 @@ class Programa {
       this.agregaMetodo(f, met);
       this.glob.set(nombre, f);
       return f;
+    }
+    // Base.showerror(io::IO, e::NotaFuera) = print(io, …): cómo se escribe un error propio. Julia lo llama al
+    // escribir el error, sin pasos (trazar.jl no lo reescribe)
+    if (op === "showerror") {
+      if (nivel > 0) throw new NoSoportado("añadir un método a showerror dentro de otro bloque");
+      if (params.length !== 2 || params[0].tipo !== "IO" || !params[1].tipo || !this.prim.esTipoPropio(params[1].tipo) || kw.length || vars) throw new NoSoportado("esta forma de Base.showerror: el laboratorio sabe Base.showerror(io::IO, e::MiError) = …");
+      met.mudo = true;
+      if (!this.showerr) this.showerr = nuevaFuncion("showerror");
+      this.agregaMetodo(this.showerr, met);
+      this.va(l); this.paso(l, sc);
+      return NADA;
     }
     if (op) {
       if (nivel > 0) throw new NoSoportado("añadir un método a " + op + " dentro de otro bloque");
@@ -730,8 +749,70 @@ class Programa {
       return this.sale(v);
     } catch (e) {
       if (e instanceof Retorno) return e.v;
+      if (e instanceof ErrorJulia) this.abandona(e);
       throw e;
     }
+  }
+  // Un error sale de una función del programa: la primera vez (en la más interna) se guarda cómo estaba la pila,
+  // para el paso del error si nadie lo atrapa; después se cierra el marco (como trazar.jl)
+  abandona(e) {
+    if (!this.alFallar || this.alFallar.e !== e) this.alFallar = { e, marcos: this.fotoMarcos() };
+    if (this.pila.length) this.pila.pop();
+  }
+
+  // ── try / catch / finally (capítulo 22) ─────────────────────────────────
+  intento(n, sc) {
+    const prof = this.pila.length, partes = hijos(n);
+    const cc = partes.find(c => c.type === "catch_clause"), fc = partes.find(c => c.type === "finally_clause"), ec = partes.find(c => c.type === "else_clause");
+    const cuerpo = partes.filter(c => c !== cc && c !== fc && c !== ec);
+    const ambT = this.nuevoAmbito(sc);
+    let v = NADA, pendiente = null, bien = false;
+    try {
+      try {
+        v = this.bloque(cuerpo, 1, ambT);
+        bien = true;
+      } catch (e) {
+        if (!(e instanceof ErrorJulia) || !cc) throw e;
+        // catch e: el nombre va en la misma línea que catch; lo de debajo es el bloque
+        const hs = hijos(cc);
+        let nombre = null, cuerpoC = hs;
+        if (hs.length && hs[0].type === "identifier" && hs[0].startPosition.row === cc.startPosition.row) { nombre = hs[0].text; cuerpoC = hs.slice(1); }
+        const ambC = this.nuevoAmbito(sc);
+        if (nombre) ambC.vars.set(nombre, ER.valorDe(e));
+        if (!this.mudo) {
+          const desde = this.actual;
+          while (this.pila.length > prof) this.pila.pop();
+          this.ponLocales(this.locs(ambC));
+          this.anota({ linea: linea(cc), tipo: "captura", desde, error: e.texto });
+        } else while (this.pila.length > prof) this.pila.pop();
+        this.atrapados.push(e);
+        try { v = this.bloque(cuerpoC, 1, ambC); } finally { this.atrapados.pop(); }
+      }
+      // else: solo si el try ha ido bien; sus errores no los atrapa el catch, y no ve las locales del try
+      if (bien && ec) v = this.bloque(hijos(ec), 1, this.nuevoAmbito(sc));
+    } catch (e) { pendiente = e; }
+    if (fc) {
+      if (pendiente instanceof Retorno || pendiente instanceof Corte) throw new NoSoportado("return, break o continue dentro de un try con finally");
+      if (pendiente && !(pendiente instanceof ErrorJulia)) throw pendiente;
+      const ambF = this.nuevoAmbito(sc);
+      if (!this.mudo) {
+        this.lineasFinally.push(this.actual);
+        while (this.pila.length > prof) this.pila.pop();
+        this.ponLocales(this.locs(ambF));
+        this.anota({ linea: linea(fc), tipo: "finally" });
+      }
+      this.bloque(hijos(fc), 1, ambF);
+      if (!this.mudo) this.actual = this.lineasFinally.pop();
+    }
+    if (pendiente) throw pendiente;
+    return v;
+  }
+  // El texto de un error del programa con su Base.showerror(io::IO, e::MiError), si lo tiene
+  escribeError(x, io) {
+    const f = this.showerr, e = f ? this.eligeMetodo(f, [io, x]) : null;
+    if (!e) return false;
+    this.llamaPrograma(f, [io, x], new Map(), e);
+    return true;
   }
 
   // ── Expresiones ────────────────────────────────────────────────────────
@@ -835,6 +916,7 @@ class Programa {
       case "field_expression": {
         const [obj, campo] = hijos(n), x = this.valor(obj, sc), c = campo.text;
         if (x.T === "Struct") return this.prim.leeCampo(x, c);
+        if (x.T === "Excepcion") return this.prim.leeCampoExc(x, c);
         if (x.T === "Modulo") {          // Random.seed!(42): una función de un módulo
           const f = (this.prim.modulos[x.nombre] || {})[c];
           if (!f) throw new NoSoportado(x.nombre + "." + c);
@@ -867,6 +949,7 @@ class Programa {
       }
       case "parametrized_type_expression": return { T: "Tipo", nombre: this.nombreTipo(n) };     // Punto{Int64}, Rational{Int64}
       case "macrocall_expression": return this.macro(n, sc);
+      case "try_statement": return this.intento(n, sc);
       case "arrow_function_expression": return this.anonima(n, sc);
       case "comprehension_expression": return this.comprension(n, sc);
       case "local_statement": case "global_statement": return this.declaracion(n, sc);
@@ -885,7 +968,13 @@ class Programa {
       const c = n.child(i);
       if (c.type === "content") r += c.text;
       else if (c.type === "escape_sequence") r += this.escape(c.text);
-      else if (c.type === "string_interpolation") { const e = hijos(c)[0]; r += V.texto(this.valor(e, sc)); }
+      else if (c.type === "string_interpolation") {
+        const e = hijos(c)[0];
+        // "«$t»": tree-sitter lee t» como un nombre, pero para Julia el nombre acaba en t y » es texto
+        const m = e.type === "identifier" && /^[\p{L}_][\p{L}\p{N}\p{Mn}\p{Mc}\p{Pc}\p{Sk}_!′″‴]*/u.exec(e.text);
+        if (m && m[0] !== e.text) { r += V.texto(this.valor({ type: "identifier", text: m[0], namedChildren: [], childCount: 0, startPosition: e.startPosition }, sc)) + e.text.slice(m[0].length); continue; }
+        r += V.texto(this.valor(e, sc));
+      }
     }
     if (n.text.startsWith('"""')) throw new NoSoportado("las cadenas de tres comillas");
     return r;
@@ -1410,6 +1499,7 @@ class Programa {
       const [obj, ind] = hijos(args[0]), x = this.valor(obj, sc);
       return this.prim.subvista(x, this.indices(x, ind, sc));
     }
+    if (nombre === "test" || nombre === "test_throws") return this.prueba(n, nombre, args, sc);
     if (nombre === "views") throw new NoSoportado("la macro @views: cambia por vistas todos los trozos de un bloque, y el laboratorio aún no lo hace. Escribe @view en cada trozo");
     if (nombre === "eval") {
       if (args.length !== 1) throw new NoSoportado("@eval con varios argumentos");
@@ -1426,6 +1516,57 @@ class Programa {
     if (["code_warntype", "code_typed", "code_llvm", "code_native", "code_lowered", "which", "profile"].includes(nombre))
       throw new NoSoportado("la macro @" + nombre + ": enseña lo que hace el compilador de Julia, que el laboratorio no tiene. Pruébalo en la nube o en tu ordenador");
     throw new NoSoportado("la macro @" + nombre);
+  }
+  // @test y @test_throws (capítulo 22), como Test de Julia 1.13 fuera de un @testset: si pasa, «Test Passed»;
+  // si falla, el informe y el error «There was an error during testing», que detiene el programa
+  prueba(n, nombre, args, sc) {
+    if (!this.prim.cargado("Test")) throw new NoSoportado("@" + nombre + " sin using Test");
+    const l = linea(n), texto = x => EX.textoExpr(this.aExpr(x, sc, false));
+    const falla = lineas => { this.salida += "Test Failed at programa.jl:" + l + "\n" + lineas.join("\n") + "\n"; throw new ErrorJulia("There was an error during testing"); };
+    const sinError = f => {
+      try { return f(); } catch (e) {
+        if (e instanceof ErrorJulia) throw new NoSoportado("un @test cuya expresión da un error: Julia escribe el error con el camino de llamadas (stacktrace), que el laboratorio no tiene. Usa @test_throws, o pruébalo en la nube");
+        throw e;
+      }
+    };
+    if (nombre === "test") {
+      if (args.length !== 1) throw new NoSoportado("@test con opciones (atol, broken, skip…)");
+      const x = args[0], ex = texto(x);
+      const COMP = ["==", "!=", "≠", "≈", "<", "<=", "≤", ">", ">=", "≥", "===", "!=="];
+      let ok, eval_ = null;
+      if (x.type === "binary_expression" && COMP.includes(opDe(x))) {
+        const [a, b] = hijos(x), op = opDe(x);
+        const va = sinError(() => this.valor(a, sc)), vb = sinError(() => this.valor(b, sc));
+        const r = this.prim.binaria(op === "≠" ? "!=" : op === "≤" ? "<=" : op === "≥" ? ">=" : op, va, vb);
+        if (r.T !== "Bool") throw new NoSoportado("@test de una comparación que no da true ni false");
+        ok = r.v; eval_ = V.repr(va) + " " + op + " " + V.repr(vb);
+      } else if (x.type === "call_expression" && hijos(x)[1] && hijos(x)[1].type === "argument_list" && !hijos(hijos(x)[1]).some(c => c.type === "named_argument" || c.type === "splat_expression")) {
+        // @test f(a, b): Julia calcula los argumentos y, si falla, enseña la llamada con sus valores
+        const [cal, lista] = hijos(x);
+        const f = sinError(() => this.valor(cal, sc)), vs = hijos(lista).map(a => sinError(() => this.valor(a, sc)));
+        const r = sinError(() => this.aplica(f, vs, new Map()));
+        if (r.T !== "Bool") throw new NoSoportado("@test de algo que no da true ni false: Julia lo cuenta como un error de la prueba");
+        ok = r.v; eval_ = cal.text + "(" + vs.map(a => V.repr(a)).join(", ") + ")";
+      } else {
+        const r = sinError(() => this.valor(x, sc));
+        if (r.T !== "Bool") throw new NoSoportado("@test de algo que no da true ni false: Julia lo cuenta como un error de la prueba");
+        if (!r.v) throw new NoSoportado("un @test de esta forma que falla: el laboratorio solo sabe escribir el informe de una comparación o de una llamada");
+        ok = r.v;
+      }
+      if (ok) return { T: "TestOK" };
+      return falla(["  Expression: " + ex].concat(eval_ !== null && eval_ !== ex ? ["   Evaluated: " + eval_] : []));
+    }
+    if (args.length !== 2) throw new NoSoportado("@test_throws con " + args.length + " argumentos");
+    const t = this.valor(args[0], sc);
+    if (t.T !== "Tipo") throw new NoSoportado("@test_throws con un mensaje en lugar de un tipo de error");
+    let lanzado = null;
+    try { this.valor(args[1], sc); } catch (e) {
+      if (!(e instanceof ErrorJulia)) throw e;
+      lanzado = ER.valorDe(e);
+    }
+    if (!lanzado) return falla(["  Expression: " + texto(args[1]), "    Expected: " + t.nombre, "  No exception thrown"]);
+    if (!this.prim.esDelTipo(lanzado, t.nombre)) throw new NoSoportado("@test_throws que recibe otro tipo de error: Julia escribe el error con el camino de llamadas (stacktrace), que el laboratorio no tiene");
+    return { T: "TestOK", lanzado: V.tipo(lanzado) };
   }
   evaluaTexto(texto, locs) {
     const arbol = this.parser.parse(texto);

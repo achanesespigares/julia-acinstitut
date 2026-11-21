@@ -61,6 +61,8 @@ mutable struct Estado
     svg::Union{Nothing,String}     # en el libro, dónde se guarda como SVG cada gráfico que se muestra
     nsvg::Int
     svgfile::Union{Nothing,String}
+    pendientes::Vector{Int}        # las líneas donde estaba el programa al entrar en cada finally
+    al_fallar::Any                 # (error, marcos) cuando un error salió de una función del programa
 end
 const T = Ref{Estado}()
 
@@ -430,6 +432,102 @@ function sale(v)
     v
 end
 
+# ── Los errores (capítulo 22) ────────────────────────────────────────────
+# El texto de un error, como lo escribe el REPL (sin la lista de candidatos ni dónde se definió cada uno)
+function texto_error(err)
+    # un @test que falla fuera de un @testset lanza este error; el REPL escribe solo su mensaje
+    nameof(typeof(err)) === :FallbackTestSetException && return String(getfield(err, :msg))
+    t = sin_main(replace(Base.invokelatest(sprint, showerror, err isa LoadError ? err.error : err; context = :module => T[].modulo), "`Main.Main`" => "`Main`"))
+    # la lista de «Closest candidates» de un MethodError no cabe en el visualizador
+    t = strip(first(split(t, "\n\nClosest candidates")))
+    # en un «is ambiguous», cada candidato lleva debajo dónde se definió («@ Main programa.jl:2»): el
+    # visualizador ya enseña el programa, así que se quita
+    replace(t, r"\n    @ [^\n]*" => "")
+end
+profundidad() = length(T[].pila)
+# Un error sale de una función del programa: la primera vez (en la más interna) se guarda cómo estaba la pila,
+# para que el paso del error enseñe dónde falló si nadie lo atrapa; después se cierra el marco.
+function abandona(err)
+    st = T[]
+    if st.al_fallar === nothing || st.al_fallar[1] !== err
+        st.al_fallar = (err, Base.invokelatest(foto_marcos))
+    end
+    isempty(st.pila) || pop!(st.pila)
+    nothing
+end
+# Un catch atrapa el error: las llamadas que se habían abierto dentro del try se cierran (sus marcos
+# desaparecen sin devolver nada) y el programa sigue en el catch. El paso dice dónde falló (desde) y el error.
+function captura(l, err, prof, locs)
+    st = T[]
+    desde = st.actual
+    while length(st.pila) > prof
+        pop!(st.pila)
+    end
+    pon_locales(locs)
+    anota(Dict{String,Any}("linea" => l, "tipo" => "captura", "desde" => desde, "error" => texto_error(err)))
+end
+# El bloque finally se ejecuta siempre: al salir del try, del catch o con un error que sigue su camino.
+# Al terminar, el programa vuelve a la línea que estaba (si el error sigue, es la que falló).
+function entra_finally(l, prof, locs)
+    st = T[]
+    push!(st.pendientes, st.actual)
+    while length(st.pila) > prof
+        pop!(st.pila)
+    end
+    pon_locales(locs)
+    anota(Dict{String,Any}("linea" => l, "tipo" => "finally"))
+end
+sale_finally() = (T[].actual = pop!(T[].pendientes); nothing)
+# la línea de una palabra (catch, finally) del programa, buscando hacia atrás desde la primera sentencia de su bloque
+function linea_de(palabra, desde)
+    L = split(CODIGO[], '\n')
+    k = min(desde, length(L))
+    # la palabra suelta, fuera de los textos ("primer catch" no cuenta)
+    while k >= 1 && !occursin(Regex("(^|[\\s;])" * palabra * "(\\s|;|\$)"), replace(L[k], r"\"(\\.|[^\"\\])*\"" => "\"\""))
+        k -= 1
+    end
+    k >= 1 ? k : desde
+end
+primera_linea(b) = (b isa Expr && (i = findfirst(a -> a isa LineNumberNode, b.args)) !== nothing) ? b.args[i].line : nothing
+ultima_linea(b, defecto) = (b isa Expr && (i = findlast(a -> a isa LineNumberNode, b.args)) !== nothing) ? b.args[i].line : defecto
+# la línea de catch o finally: hacia atrás desde la primera sentencia de su bloque o, si el bloque está vacío,
+# hacia delante desde la última sentencia del bloque anterior
+function linea_bloque(palabra, b, antes)
+    p = primera_linea(b)
+    p === nothing || return linea_de(palabra, p)
+    L = split(CODIGO[], '\n')
+    k = antes + 1
+    while k <= length(L) && !occursin(Regex("^\\s*" * palabra * "\\b"), L[k])
+        k += 1
+    end
+    k <= length(L) ? k : antes
+end
+const NTRY = Ref(0)
+function reescribe_try(e, linea, nivel)
+    NTRY[] += 1
+    dv = Symbol("__prof", NTRY[])
+    tb, var, cb = e.args[1], e.args[2], e.args[3]
+    ev = var === false ? Symbol("__err") : var
+    nuevo = Any[cuerpo(tb, linea, nivel + 1), ev]
+    if cb === false
+        push!(nuevo, false)
+    else
+        lc = linea_bloque("catch", cb, ultima_linea(tb, linea))
+        push!(nuevo, Expr(:block, llama(captura, lc, ev, dv, LOCALS), cuerpo(cb, lc, nivel + 1)))
+    end
+    if length(e.args) >= 4 && e.args[4] !== false
+        fb = e.args[4]
+        lf = linea_bloque("finally", fb, ultima_linea(cb === false ? tb : cb, linea))
+        push!(nuevo, Expr(:block, llama(entra_finally, lf, dv, LOCALS), cuerpo(fb, lf, nivel + 1), llama(sale_finally)))
+    elseif length(e.args) >= 5
+        push!(nuevo, false)
+    end
+    length(e.args) >= 5 && push!(nuevo, cuerpo(e.args[5], linea, nivel + 1))
+    # catch sin nombre: Julia no permite «catch» con una variable y sin bloque, así que se nombra igual
+    Expr(:block, Expr(:(=), dv, llama(profundidad)), Expr(:try, nuevo...))
+end
+es_try(e) = e isa Expr && e.head == :try
+
 # ── Reescribir el programa ───────────────────────────────────────────────
 const LOCALS = Expr(:macrocall, Expr(:., :Base, QuoteNode(Symbol("@locals"))), LineNumberNode(0, :none))
 llama(f, args...) = Expr(:call, f, args...)
@@ -501,7 +599,10 @@ function instrumenta(fex, linea)
         end
     end
     isempty(sts) && push!(nuevo, llama(sale, nothing))
-    Expr(fex.head, sig, Expr(:block, nuevo...))
+    # si un error sale de la función, su marco se cierra al salir (capítulo 22: lo puede atrapar un catch, o
+    # el propio Julia, como hace @test_throws); el error sigue su camino
+    exc = Symbol("__exc")
+    Expr(fex.head, sig, Expr(:block, Expr(:try, Expr(:block, nuevo...), exc, Expr(:block, llama(abandona, exc), Expr(:call, :rethrow)))))
 end
 
 function cuerpo(b, linea, nivel)
@@ -529,10 +630,35 @@ function reescribe_if(e, linea, nivel)
 end
 
 # final = true: la última sentencia de una función, cuyo valor es lo que devuelve
+# Base.showerror(io::IO, e::MiError) = …: un método que Julia llama para escribir el error, no el programa
+# (capítulo 22); no se recorre paso a paso
+function es_showerror(e)
+    es_def_funcion(e) || return false
+    c = nombre_firma(e.args[1])
+    c isa Expr && c.head == :call && string(c.args[1]) in ("Base.showerror", "showerror", "Base.show")
+end
 function reescribe(e, linea, nivel; final = false)
+    if es_showerror(e)
+        return Expr(:block, llama(va, linea), e, llama(paso, linea, LOCALS), nothing)
+    end
     if es_def_funcion(e)
         f = instrumenta(e, linea)
         return nivel == 0 ? Expr(:block, llama(va, linea), f, llama(paso, linea, LOCALS), nothing) : f
+    end
+    if es_try(e)
+        t = reescribe_try(e, linea, nivel)
+        if nivel == 0      # como en el REPL, el valor del try se escribe; el paso del final lo enseña
+            v = gensym("__v")
+            return Expr(:block, llama(va, linea), Expr(:(=), v, t), llama(muestra, v), llama(paso, linea, LOCALS), nothing)
+        end
+        final && return Expr(:block, llama(va, linea), t)
+        return Expr(:block, llama(va, linea), t)
+    end
+    # x = try … end: se reescribe el try de la derecha
+    if e isa Expr && e.head == :(=) && es_try(e.args[2]) && !es_def_funcion(e)
+        t = Expr(:(=), e.args[1], reescribe_try(e.args[2], linea, nivel))
+        final && return Expr(:block, llama(va, linea), t)
+        return Expr(:block, llama(va, linea), t, llama(paso, linea, LOCALS), nivel == 0 ? nothing : e.args[1])
     end
     if e isa Expr && e.head == :for
         e2 = Expr(:for, e.args[1], Expr(:block, llama(cabecera, linea, LOCALS), cuerpo(e.args[2], linea, nivel + 1),
@@ -579,11 +705,12 @@ function traza(codigo::AbstractString, config::AbstractDict; svg = nothing)
     st = Estado(Module(:Main), Any[], Any[], Symbol[], Any[], 0, Dict{Int,Int}(), 0, Dict{Symbol,Any}(),
                 String.(get(config, "columnas", String[])), get(config, "fila_en", "") == "cada_linea",
                 String.(get(config, "ocultar", String[])), salida, Dict{Symbol,Vector{String}}(), IdDict{Any,Int}(),
-                nothing, svg, 0, nothing)
+                nothing, svg, 0, nothing, Int[], nothing)
     T[] = st
     occursin(r"\busing\s+.*\bPlots\b", codigo) && carga_plots()
     PLOTS[] === nothing || (PLOTS[].CURRENT_PLOT.nullableplot = nothing)     # cada programa empieza sin gráfico actual
     CODIGO[] = codigo
+    NTRY[] = 0
     Core.eval(st.modulo, :(using Random; Random.seed!(1)))
     # Module(:Main) no trae eval, que todo módulo hecho con `module … end` sí tiene (capítulo 20)
     Core.eval(st.modulo, :(eval(x) = Core.eval($(st.modulo), x)))
@@ -604,16 +731,14 @@ function traza(codigo::AbstractString, config::AbstractDict; svg = nothing)
                     Core.eval(st.modulo, REPL.softscope(reescribe(a, linea, 0)))
                 end
             catch err
-                error_txt = sin_main(replace(Base.invokelatest(sprint, showerror, err isa LoadError ? err.error : err; context = :module => st.modulo), "`Main.Main`" => "`Main`"))
-                # la lista de «Closest candidates» de un MethodError no cabe en el visualizador
-                error_txt = strip(first(split(error_txt, "\n\nClosest candidates")))
-                # en un «is ambiguous», cada candidato lleva debajo dónde se definió («@ Main programa.jl:2»):
-                # el visualizador ya enseña el programa, así que se quita
-                error_txt = replace(error_txt, r"\n    @ [^\n]*" => "")
+                error_txt = texto_error(err)
                 # desde aquí, como en el REPL, hay que mirar la «edad del mundo» más reciente: las variables que
                 # el programa ha creado no existen para el código compilado antes de crearlas (Julia 1.12+)
                 est, orden = Base.invokelatest(foto)
-                momento = (est, orden, isempty(st.pila) ? nothing : Base.invokelatest(foto_marcos))
+                e0 = err isa LoadError ? err.error : err
+                marcos = st.al_fallar !== nothing && st.al_fallar[1] === e0 ? st.al_fallar[2] :
+                         isempty(st.pila) ? nothing : Base.invokelatest(foto_marcos)
+                momento = (est, orden, marcos === nothing || isempty(marcos) ? nothing : marcos)
             end
         end
     end

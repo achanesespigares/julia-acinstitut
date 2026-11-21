@@ -49,7 +49,7 @@ a
 ```
 
 ```{anywidget} ../widgets/traza-jl.mjs
-{"archivo": "datos/trazas/21-memoria-1.json", "config": {"etiqueta": "== · ===", "idea": "== compara los valores; === pregunta si son el mismo objeto de la memoria. b = a da otro nombre al mismo vector, y copy(a) hace otro vector con los mismos valores: igual, pero no el mismo.", "titulo": "Igual no es lo mismo"}}
+{"archivo":"datos/trazas/21-memoria-1.json","config":{"etiqueta":"== · ===","idea":"== compara los valores; === pregunta si son el mismo objeto de la memoria. b = a da otro nombre al mismo vector, y copy(a) hace otro vector con los mismos valores: igual, pero no el mismo.","titulo":"Igual no es lo mismo"}}
 ```
 
 Lo de las tres primeras líneas ya lo conoces: `b = a` no copia, y `b[1] = 100` cambia el vector que comparten los dos nombres. Lo nuevo es `===`. Con dos signos, `==`, Julia compara los **valores**, casilla a casilla. Con tres, `===`, pregunta otra cosa: si los dos nombres señalan al **mismo objeto** de la memoria. `a === b` da `true`, porque son dos etiquetas en el mismo vector.
@@ -79,7 +79,7 @@ x
 ```
 
 ```{anywidget} ../widgets/traza-jl.mjs
-{"archivo": "datos/trazas/21-memoria-2.json", "config": {"etiqueta": "etiqueta · casillas", "idea": "w = w .+ 10 calcula un vector nuevo y le pega la etiqueta w: v no se entera. w .+= 10 escribe en las casillas del vector que ya tiene la etiqueta w, que es el de v.", "titulo": "Pegar una etiqueta o cambiar las casillas"}}
+{"archivo":"datos/trazas/21-memoria-2.json","config":{"etiqueta":"etiqueta · casillas","idea":"w = w .+ 10 calcula un vector nuevo y le pega la etiqueta w: v no se entera. w .+= 10 escribe en las casillas del vector que ya tiene la etiqueta w, que es el de v.","titulo":"Pegar una etiqueta o cambiar las casillas"}}
 ```
 
 Con `w = v`, los dos nombres señalan al mismo vector. Pero `w = w .+ 10` no toca ese vector: `w .+ 10` **calcula uno nuevo**, `[11, 12, 13]`, y el `=` pega la etiqueta `w` en él. `v` sigue en el de antes, que no ha cambiado, y el visualizador ya no los une.
@@ -111,7 +111,7 @@ clase[1]
 ```
 
 ```{anywidget} ../widgets/traza-jl.mjs
-{"archivo": "datos/trazas/21-memoria-3.json", "config": {"etiqueta": "copy · deepcopy", "idea": "copy copia el vector, pero no las fichas que guarda: la copia señala a las mismas fichas. deepcopy copia también todo lo que cuelga de él.", "titulo": "Una copia de un solo piso"}}
+{"archivo":"datos/trazas/21-memoria-3.json","config":{"etiqueta":"copy · deepcopy","idea":"copy copia el vector, pero no las fichas que guarda: la copia señala a las mismas fichas. deepcopy copia también todo lo que cuelga de él.","titulo":"Una copia de un solo piso"}}
 ```
 
 Sí cambian: `clase[1]` también tiene ahora 5 faltas. `copy(clase)` hace un vector nuevo, pero no copia las fichas que hay dentro. Cada casilla de un vector de fichas guarda **a qué ficha señala**, y `copy` copia eso, las señales. Así que `copia[1]` y `clase[1]` son la misma ficha, y el visualizador lo marca en cada casilla con «↔». Es una **copia superficial**, de un solo piso.
@@ -138,7 +138,7 @@ w
 ```
 
 ```{anywidget} ../widgets/traza-jl.mjs
-{"archivo": "datos/trazas/21-memoria-4.json", "config": {"etiqueta": "trozo · vista", "idea": "v[2:4] copia las casillas en un vector nuevo. @view v[2:4] no copia nada: es una ventana a las casillas 2, 3 y 4 de v, y escribir en ella es escribir en v.", "titulo": "Un trozo copia, una vista no"}}
+{"archivo":"datos/trazas/21-memoria-4.json","config":{"etiqueta":"trozo · vista","idea":"v[2:4] copia las casillas en un vector nuevo. @view v[2:4] no copia nada: es una ventana a las casillas 2, 3 y 4 de v, y escribir en ella es escribir en v.","titulo":"Un trozo copia, una vista no"}}
 ```
 
 `t = v[2:4]` es el trozo de *Índices, filtros y el punto*: un vector **nuevo** con una copia de las casillas 2, 3 y 4. Cambiar `t[1]` no toca `v`.
@@ -175,7 +175,7 @@ notas
 ```
 
 ```{anywidget} ../widgets/traza-jl.mjs
-{"archivo": "datos/trazas/21-memoria-5.json", "config": {"etiqueta": "funciones · vistas", "idea": "La función recibe el mismo objeto que se le pasa. Si es una vista, lo que cambia la función son las casillas del vector de fuera.", "titulo": "Lo que una función puede cambiar"}}
+{"archivo":"datos/trazas/21-memoria-5.json","config":{"etiqueta":"funciones · vistas","idea":"La función recibe el mismo objeto que se le pasa. Si es una vista, lo que cambia la función son las casillas del vector de fuera.","titulo":"Lo que una función puede cambiar"}}
 ```
 
 Una función recibe **el mismo objeto** que se le pasa, como en *Funciones*: dentro de `anota!`, `v` es otro nombre para `notas`, y `push!` le añade un 9. `sube` hace lo del principio de la sección 2: `v = v .+ 1` calcula un vector nuevo y le pega la etiqueta local `v`. La función lo devuelve, `[6, 8, 5, 10]`, y `notas` no cambia. `sube!` usa `.+=`, que escribe en las casillas del vector que recibe.

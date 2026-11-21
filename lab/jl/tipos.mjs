@@ -5,14 +5,18 @@
 // del objeto de JavaScript (como un vector); si no, dos valores con los mismos campos son el mismo valor.
 import * as V from "./valores.mjs";
 import { ErrorJulia, NoSoportado, B, errorMetodo, tipo, repr } from "./valores.mjs";
+import * as ER from "./errores.mjs";
 
 // El árbol de los tipos de Julia que conoce el laboratorio (supertype de cada uno, como en Julia 1.13)
 export const PADRE_JULIA = {
   Int64: "Signed", Signed: "Integer", Bool: "Integer", Integer: "Real", Float64: "AbstractFloat", AbstractFloat: "Real",
   "Rational{Int64}": "Real", Real: "Number", Number: "Any", String: "AbstractString", AbstractString: "Any",
   Char: "AbstractChar", AbstractChar: "Any", Nothing: "Any", Missing: "Any", DataType: "Type{T}", Symbol: "Any",
+  Exception: "Any", IO: "Any",
 };
-export const ABSTRACTOS_JULIA = new Set(["Any", "Number", "Real", "Integer", "Signed", "AbstractFloat", "AbstractString", "AbstractChar"]);
+// los tipos de error de Julia (capítulo 22): todos son subtipos directos de Exception
+for (const n of ER.NOMBRES) PADRE_JULIA[n] = "Exception";
+export const ABSTRACTOS_JULIA = new Set(["Any", "Number", "Real", "Integer", "Signed", "AbstractFloat", "AbstractString", "AbstractChar", "Exception", "IO"]);
 // Lo específico que es un tipo al elegir método: cuanto más abajo en el árbol de tipos, más
 const PROF = { Char: 1 };
 const profJulia = t => { let k = 0; for (let x = t; x && x !== "Any"; x = PADRE_JULIA[x]) k++; return k; };
@@ -25,7 +29,7 @@ export function tiposPropios(P, fn) {
     if (b === "Any" || a === b) return true;
     const pa = /^(\w+)\{/.exec(a);                         // Punto{Int64} <: Punto
     if (pa && pa[1] === b && tipos.has(b)) return true;
-    for (let t = tipos.get(pa ? pa[1] : a); t; t = tipos.get(t.padre)) if (t.padre === b) return true;
+    for (let t = tipos.get(pa ? pa[1] : a); t; t = tipos.get(t.padre)) { if (t.padre === b) return true; if (t.padre === "Exception") return false; }
     if (!tipos.has(a)) for (let x = PADRE_JULIA[a]; x; x = x === "Any" ? null : PADRE_JULIA[x]) if (x === b) return true;
     return false;
   };
@@ -48,7 +52,8 @@ export function tiposPropios(P, fn) {
   P.defineTipo = def => {
     const viejo = tipos.get(def.nombre);
     if (viejo && JSON.stringify({ ...viejo, fn: undefined }) !== JSON.stringify({ ...def, fn: undefined })) throw new NoSoportado("redefinir el tipo " + def.nombre + " con otros campos");
-    if (def.padre !== "Any" && !(tipos.has(def.padre) && tipos.get(def.padre).abstracto))
+    // struct NotaFuera <: Exception: un tipo de error propio (capítulo 22)
+    if (def.padre !== "Any" && def.padre !== "Exception" && !(tipos.has(def.padre) && tipos.get(def.padre).abstracto))
       throw new NoSoportado(tipos.has(def.padre) ? "heredar de un tipo concreto" : "heredar de " + def.padre);
     if (!viejo) tipos.set(def.nombre, def);
     return tipos.get(def.nombre);

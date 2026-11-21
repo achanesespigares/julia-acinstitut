@@ -47,6 +47,9 @@ project:
         - file: capitulos/19-rendimiento.md
         - file: capitulos/20-metaprogramacion.md
         - file: capitulos/21-memoria.md
+    - title: Parte V · Trabajar como profesional
+      children:
+        - file: capitulos/22-errores-pruebas.md
 site:
   template: book-theme
   options:

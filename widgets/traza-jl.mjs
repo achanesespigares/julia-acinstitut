@@ -204,6 +204,9 @@ pre.tz-codigo{ margin:0; font:400 14px/1.85 var(--mono); overflow-x:auto; backgr
 .tz-aviso .origen, .tz-error .origen{ font-family:var(--mono, ui-monospace, monospace); font-size:12.5px; opacity:.8; }
 .tz-error{ border:2px solid var(--acento); background:var(--suave); border-radius:8px; padding:8px 12px; font-size:14px; }
 .tz-error .txt{ white-space:pre-line; overflow-wrap:anywhere; }
+.tz-error.atrapado{ border-style:dashed; background:#fff; }      /* capítulo 22: un error que atrapa un catch */
+.tz-error.atrapado b{ color:var(--acento); }
+.tz .ln.salta{ border-left:4px dashed var(--acento); }
 .tz-consola{ background:var(--tinta); color:#EDEDED; font:400 14px/1.6 var(--mono); padding:10px 12px; min-height:2.6em; white-space:pre; overflow-x:auto; margin:0; }   /* como la consola: las columnas no se parten */
 .tz-tabla{ border-collapse:collapse; font:500 14px/1.2 var(--mono); width:100%; }
 .tz-tabla th{ font:600 10.5px/1.2 var(--titulo); letter-spacing:.06em; text-align:left; color:var(--banda); padding:6px 10px; border-bottom:1.5px solid var(--tinta); }
@@ -427,6 +430,7 @@ const EJEMPLOS = [
   { nombre: "Tipos con parámetros", codigo: "struct Punto{T<:Real}\n    x::T\n    y::T\nend\nque_es(p::Punto{Int64}) = \"un punto de enteros\"\nque_es(p::Punto) = \"un punto de otro tipo\"\np = Punto(3, 4)\nq = Punto(1.5, 2.0)\nque_es(p)\nque_es(q)\ntypeof(q)" },
   { nombre: "Piedra, papel o tijera", codigo: "abstract type Jugada end\nstruct Piedra <: Jugada end\nstruct Papel <: Jugada end\nstruct Tijera <: Jugada end\ngana(a::Jugada, b::Jugada) = false\ngana(a::Piedra, b::Tijera) = true\ngana(a::Tijera, b::Papel) = true\ngana(a::Papel, b::Piedra) = true\ngana(Piedra(), Tijera())\ngana(Tijera(), Piedra())\ngana(Papel(), Papel())" },
   { nombre: "Un polinomio hecho código", codigo: "coefs = [1, -3, 2]\np = :(0)\nfor (k, c) in enumerate(coefs)\n    p = :($p + $c * x ^ $(k - 1))\nend\np\nx = 2\neval(p)\nx = 0.5\neval(p)", tabla: "k, c, p" },
+  { nombre: "Una nota que no vale", codigo: "function nota(t)\n    n = tryparse(Float64, t)\n    n === nothing && throw(ArgumentError(\"«$t» no es un número\"))\n    0 <= n <= 10 || throw(DomainError(n, \"la nota va de 0 a 10\"))\n    return n\nend\nfor t in [\"8.5\", \"once\", \"12\", \"6\"]\n    try\n        println(t, \" → \", nota(t))\n    catch e\n        println(t, \" → \", typeof(e))\n    end\nend\nnota(\"diez\")" },
   { nombre: "Una vista que trabaja", codigo: "function aprueba!(v)\n    for i in eachindex(v)\n        v[i] = max(v[i], 5)\n    end\n    return v\nend\nnotas = [3, 8, 4, 9, 2, 7]\ngrupo_a = view(notas, 1:3)\naprueba!(grupo_a)\nnotas\ncopia = notas[4:6]\naprueba!(copia)\nnotas" },
   { nombre: "Contar los pasos", codigo: "v = [3, 8, 15, 21, 30, 42, 57, 64, 77, 88]\nx = 64\nizq = 1\nder = length(v)\npasos = 0\nwhile izq <= der\n    pasos += 1\n    m = (izq + der) ÷ 2\n    if v[m] == x\n        break\n    elseif v[m] < x\n        izq = m + 1\n    else\n        der = m - 1\n    end\nend\npasos", tabla: "pasos, izq, m, der" },
   { nombre: "Un bucle que suma", codigo: "notas = [9.0, 6.5, 4.0, 7.5]\ntotal = 0.0\nfor i in eachindex(notas)\n    if notas[i] >= 5\n        total += notas[i]\n    end\nend\ntotal", tabla: "i, notas[i], total" },
@@ -682,10 +686,34 @@ function dibujaTraza(el, C, D) {
   // Base.:+(a::Punto, b::Punto) = …: un método para un operador de Julia
   const RE_BASE = /^\s*(?:function\s+)?Base\.:(\([^()]+\)|[^\s(]+)(\(.*?\))/;
   const opBase = t => t.replace(/^Base\.:/, "").replace(/^\((.*)\)$/, "$1");
+  // throw(…) o error(…) en la línea: el error lo lanza el propio programa
+  function quienLanza(l) {
+    const lt = L[l - 1] || "";
+    if (/\bthrow\(/.test(lt)) return " Lo lanza el propio programa, con " + code("throw") + ".";
+    if (/(^|[^\w.])error\(/.test(lt)) return " Lo lanza el propio programa, con " + code("error") + ", que crea un " + code("ErrorException") + " con ese texto.";
+    if (/(^|[^\w.])rethrow\(/.test(lt)) return " Es el mismo error de antes: " + code("rethrow") + " lo deja seguir su camino.";
+    return "";
+  }
   function narra(p, prev) {
     if (p.tipo === "inicio") return "El programa está listo. Pulsa «Paso ▶» para ejecutar la primera línea.";
     if (p.tipo === "error") return "Julia se detiene en la línea " + p.linea + " con un error" + (p.marcos && p.marcos.length ? ", dentro de " + code(p.marcos[p.marcos.length - 1].llamada) : "") + ". Lo que viene detrás ya no se ejecuta." +
+      quienLanza(p.linea) +
+      (p.error === "There was an error during testing" ? " Es lo que hace un " + code("@test") + " que falla fuera de un " + code("@testset") + ": escribe en la consola qué ha fallado (la expresión y, debajo, con qué valores) y lanza este error, que detiene el programa." : "") +
       (/ is ambiguous\./.test(p.error || "") ? " Hay varios métodos que encajan y ninguno es más específico que los demás, así que Julia no elige: es una <b>ambigüedad</b>. El mensaje dice qué método habría que añadir para resolverla." : "");
+    if (p.tipo === "captura") {
+      // catch e: la variable del error es la local nueva del catch
+      const lt = L[p.linea - 1] || "", nom = (lt.match(/\bcatch\s+(\w+)/) || [])[1];
+      const mf = p.marcos && p.marcos.length ? p.marcos[p.marcos.length - 1].vars : null, ev = nom && ((mf && mf[nom]) || p.estado[nom]);
+      const cerradas = (prev && prev.marcos ? prev.marcos.length : 0) - (p.marcos ? p.marcos.length : 0);
+      const primera = !P.slice(0, P.indexOf(p)).some(x => x.tipo === "captura");
+      const enLlamada = cerradas > 0 ? prev.marcos[prev.marcos.length - 1].llamada : null;
+      return "El error salta en la línea " + p.desde + (enLlamada ? ", dentro de " + code(enLlamada) + ", que se llamó desde el bloque " + code("try") : p.desde === p.linea ? "" : ", dentro del bloque " + code("try")) + "." + quienLanza(p.desde) +
+        " Pero esta vez Julia no se detiene: el " + code("catch") + " lo <b>atrapa</b> y el programa sigue aquí, en la línea " + p.linea + "." +
+        (primera ? " Lo que quedaba del bloque " + code("try") + " ya no se ejecuta." : "") +
+        (cerradas > 0 ? " " + (cerradas === 1 ? "La llamada que estaba en curso termina" : "Las " + cerradas + " llamadas que estaban en curso terminan") + " sin devolver nada: " + (cerradas === 1 ? "su espacio" : "sus espacios") + " en la memoria " + (cerradas === 1 ? "desaparece" : "desaparecen") + "." : "") +
+        (ev ? " El error queda guardado en " + code(nom) + ", una variable local del " + code("catch") + ": es un valor de tipo " + code(ev.t) + "." : "");
+    }
+    if (p.tipo === "finally") return "Empieza el bloque " + code("finally") + ". Julia lo ejecuta <b>siempre</b> al salir del " + code("try") + ": si todo ha ido bien, si un " + code("catch") + " ha atrapado un error y también si el error sigue su camino. Sirve para dejar las cosas en orden, como cerrar un archivo.";
     if (p.tipo === "vuelta") {
       // for a in xs, b in ys: un bucle dentro de otro, en una línea; cada vuelta es una pareja
       const dos = (L[p.linea - 1] || "").match(/^\s*for\s+(\w+)\s+in\s+(.+?)\s*,\s*(\w+)\s+in\s+(.+?)\s*$/);
@@ -722,6 +750,7 @@ function dibujaTraza(el, C, D) {
     }
     { const lt = (L[p.linea - 1] || "").trim();
       const us = lt.match(/^using\s+(.+)$/);
+      if (us && us[1].trim() === "Test") return "Se carga " + code("Test") + ", la biblioteca de pruebas. Viene con Julia, así que no hay que instalarla: basta con " + code("using") + ". Desde esta línea existen " + code("@test") + ", " + code("@test_throws") + " y " + code("@testset") + ".";
       if (us) {
         const ps = us[1].split(",").map(x => x.trim()), que = { DataFrames: "DataFrame, groupby, combine, nrow…", Statistics: "mean, median…", LinearAlgebra: "det, dot, norm, la identidad I…", Plots: "plot, scatter, plot!, bar, histogram…", Random: "Random.seed!, shuffle, randperm…" };
         return (ps.length > 1 ? "Se cargan los paquetes " + ps.slice(0, -1).map(code).join(", ") + " y " + code(ps[ps.length - 1]) : "Se carga el paquete " + code(ps[0])) + ". Desde esta línea existen sus funciones (" + ps.map(x => que[x] || "").filter(Boolean).join("; ") + "), que Julia no trae de serie.";
@@ -997,7 +1026,10 @@ function dibujaTraza(el, C, D) {
       frases.push("Y " + (varias ? y.slice(0, -1).join(", ") + " y " + y[y.length - 1] + " también cambian: no son" : y[0] + " también cambia: no es") + " el mismo objeto que " + code(enLinea) + ", pero " + (varias ? "guardan" : "guarda") + " sus valores en las <b>mismas casillas</b> de la memoria.");
     }
     // las que desaparecen (una variable local de un bucle que termina)
-    for (const n of nombres(antes, prev && (mp ? (ma ? ma.orden : []) : prev.orden))) if (!ahora[n] && antes[n].local && !mp) frases.push(code(n) + " desaparece: era local del bucle.");
+    for (const n of nombres(antes, prev && (mp ? (ma ? ma.orden : []) : prev.orden))) if (!ahora[n] && antes[n].local && !mp)
+      frases.push(code(n) + " desaparece: era local " + (L.some(x => new RegExp("\\bcatch\\s+" + n + "\\b").test(x)) ? "del " + code("catch") : "del bucle") + ".");
+    // el final de un try del programa principal (su valor, si no es nothing, sale en la consola)
+    if (p.tipo === "linea" && /^\s*try\s*$/.test(L[p.linea - 1] || "")) frases.unshift("Termina el bloque " + code("try") + ". El programa sigue por la línea siguiente.");
     if (mp && prev && prev.estado) {          // dentro de una llamada, cambia algo del programa principal
       for (const n of nombres(p.estado, p.orden)) {
         const a = prev.estado[n], b = p.estado[n];
@@ -1029,6 +1061,9 @@ function dibujaTraza(el, C, D) {
       else if (ev) frases.push(code("eval") + " ejecuta " + (evx ? "la expresión " + code(evx.r) : code(ev[1])) + " como si su código estuviera escrito aquí, en el programa principal, con los valores de ahora, y Julia muestra el resultado: " + muestra1 + ".");
       else if (/^Random\.seed!\(/.test(linea)) frases.push(code(linea) + " fija la <b>semilla</b>: desde aquí, los números «al azar» son siempre los mismos, en cualquier ordenador. Devuelve el generador de números al azar, y Julia lo muestra como " + code("TaskLocalRNG()") + ".");
       else if (/\.[-+*\/^]=/.test(linea)) frases.push("Una operación como " + code(linea.match(/\.[-+*\/^]=/)[0]) + " cambia las casillas igual que " + code(".=") + ", pero para la consola no es una asignación: Julia muestra su resultado" + cola);
+      else if (/^@test_throws\s+\S+\s+/.test(linea)) { const [, t, ex] = linea.match(/^@test_throws\s+(\S+)\s+(.*)$/);
+        frases.push(code("@test_throws") + " comprueba que " + code(ex) + " lanza un error de tipo " + code(t) + ": lo lanza, así que la prueba <b>pasa</b>. Julia escribe «Test Passed» y, debajo, el tipo del error que se lanzó (" + code("Thrown") + "). El error no detiene el programa: lo ha atrapado la prueba."); }
+      else if (/^@test\s+/.test(linea)) frases.push(code("@test") + " comprueba que " + code(linea.replace(/^@test\s+/, "")) + " es <code>true</code>: lo es, así que la prueba <b>pasa</b>, y Julia escribe «Test Passed».");
       else if (/^@show\b/.test(linea)) frases.push(code("@show") + " escribe en la consola la expresión y su valor: " + muestra1 + ".");
       else if (/^print(ln)?\(/.test(linea)) frases.push(code(linea.match(/^print(ln)?/)[0]) + " escribe en la consola " + muestra1 + (/^println/.test(linea) ? ", y salta de línea." : "."));
       else if (/^[\w.!]+$/.test(linea)) frases.push("Escribir solo " + code(linea) + " hace que Julia muestre su valor en la consola" + (colaV || cola));
@@ -1067,8 +1102,23 @@ function dibujaTraza(el, C, D) {
         return "La llamada a " + code(llam) + " ha terminado. Como devuelve " + code("nothing") + ", la consola no muestra nada: lo que importaba era lo que ha hecho por el camino.";
     }
     // condición || error("…"): si el paso no es un error, la condición era true y error no llega a ejecutarse
-    const oCorto = (L[p.linea - 1] || "").match(/^\s*(.+?)\s*\|\|\s*error\(/);
-    if (!frases.length && oCorto) return "Se comprueba " + code(oCorto[1]) + ": es <code>true</code>, así que el <code>||</code> no necesita mirar lo de la derecha, y <code>error</code> no se ejecuta. El programa sigue.";
+    const oCorto = (L[p.linea - 1] || "").match(/^\s*(.+?)\s*\|\|\s*(error|throw)\(/);
+    if (!frases.length && oCorto) return "Se comprueba " + code(oCorto[1]) + ": es <code>true</code>, así que el <code>||</code> no necesita mirar lo de la derecha, y <code>" + oCorto[2] + "</code> no se ejecuta. El programa sigue.";
+    const yCorto = (L[p.linea - 1] || "").match(/^\s*(.+?)\s*&&\s*(error|throw)\(/);
+    if (!frases.length && yCorto) return "Se comprueba " + code(yCorto[1]) + ": es <code>false</code>, así que el <code>&&</code> no necesita mirar lo de la derecha, y no se lanza ningún error. El programa sigue.";
+    if (!frases.length && /^\s*Base\.showerror\(/.test(L[p.linea - 1] || "")) {
+      const t = ((L[p.linea - 1] || "").match(/::\s*(\w+)\s*\)/) || [])[1];
+      return "Se añade a " + code("showerror") + " un método" + (t ? " para " + code(t) : "") + ": así escribirá Julia ese error cuando lo tenga que enseñar. " + code("showerror") + " es de Julia, del módulo " + code("Base") + ", y el programa no la llama: la llama Julia. Como no se crea ningún nombre nuevo, la memoria no cambia.";
+    }
+    // e, sola, al final de un catch o de un try: es el valor del bloque
+    if (!frases.length && /^\s*\w+\s*$/.test(L[p.linea - 1] || "")) {
+      const sangria = (L[p.linea - 1].match(/^\s*/) || [""])[0].length;
+      for (let j = p.linea - 2; j >= 0 && j >= p.linea - 12; j--) {
+        const m = (L[j] || "").match(/^(\s*)(catch|try)\b/);
+        if (m && m[1].length < sangria) return "Se calcula " + code(L[p.linea - 1].trim()) + ". Como es lo último del bloque, es lo que dará el " + code("try") + " entero si el programa llega hasta aquí.";
+        if (/^\s*end\b/.test(L[j] || "")) break;
+      }
+    }
     return frases.length ? frases.join(" ") : "Se ejecuta la línea " + p.linea + ".";
   }
 
@@ -1256,6 +1306,7 @@ function dibujaTraza(el, C, D) {
         (activo && p.tipo === "devuelve" ? '<span class="devuelve">devuelve ' + esc(p.valor) + "</span>" : "") + "</div>";
     });
     if (p.tipo === "error") html += '<div class="tz-error"><b>Error de Julia</b><br><span class="txt">' + esc(p.error) + "</span></div>";
+    if (p.tipo === "captura") html += '<div class="tz-error atrapado"><b>Error atrapado por el catch</b> (saltó en la línea ' + p.desde + ')<br><span class="txt">' + esc(p.error) + "</span></div>";
     return html;
   }
 
@@ -1272,7 +1323,8 @@ function dibujaTraza(el, C, D) {
 
   function pinta() {
     const p = P[k], prev = P[Math.max(0, k - 1)];
-    el.querySelectorAll(".ln").forEach(n => n.classList.remove("hecha", "error", "espera"));
+    el.querySelectorAll(".ln").forEach(n => n.classList.remove("hecha", "error", "espera", "salta"));
+    if (p.tipo === "captura" && p.desde !== p.linea) { const ln = el.querySelector('.ln[data-n="' + p.desde + '"]'); if (ln) ln.classList.add("salta"); }
     (p.marcos || []).forEach(m => { const ln = m.desde && el.querySelector('.ln[data-n="' + m.desde + '"]'); if (ln && m.desde !== p.linea) ln.classList.add("espera"); });
     if (p.linea) { const ln = el.querySelector('.ln[data-n="' + p.linea + '"]'); if (ln) { ln.classList.add("hecha"); if (p.tipo === "error") ln.classList.add("error"); } }
     q(".tz-lin").textContent = p.linea ? "línea " + p.linea : "";

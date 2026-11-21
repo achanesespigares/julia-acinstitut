@@ -62,6 +62,9 @@ export function tipo(x) {
     case "RNG": return GANCHOS.usaRandom && GANCHOS.usaRandom() ? "TaskLocalRNG" : "Random.TaskLocalRNG";
     case "Modulo": return "Module";
     case "Struct": return x.params ? x.tipo + "{" + x.params.join(", ") + "}" : x.tipo;
+    case "Excepcion": return x.tipo;
+    case "IO": return "IOBuffer";
+    case "TestOK": return "Test.Pass";
     case "DataFrame": return "DataFrame";
     case "FilaDF": return "DataFrameRow{DataFrame, DataFrames.Index}";
     case "GrupoDF": return "GroupedDataFrame{DataFrame}";
@@ -217,6 +220,7 @@ export function repr(x, dentro = false) {
     case "RNG": return "TaskLocalRNG()";
     case "Modulo": return x.nombre;
     case "Struct": return tipo(x) + "(" + x.a.map(e => repr(e)).join(", ") + ")";
+    case "Excepcion": return x.tipo + "(" + x.a.map(e => repr(e)).join(", ") + ")";      // DomainError(-4.0, "…")
     case "DataFrame": case "FilaDF": case "GrupoDF": return GANCHOS.muestraDF(x);      // show de un tipo propio: Alumna("Ana", 2, 9.0)
     case "Dict": {
       const es = x.t.entradas();

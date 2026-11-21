@@ -14,6 +14,7 @@ import * as GR from "./graficos.mjs";
 import * as AZ from "./azar.mjs";
 import * as MT from "./matematicas.mjs";
 import * as EX from "./expr.mjs";
+import * as ER from "./errores.mjs";
 import { ErrorJulia, NoSoportado, I, F, B, S, Ch, NADA, FALTA, errorMetodo, aNum, tipo, repr } from "./valores.mjs";
 
 const T = nombre => ({ T: "Tipo", nombre });
@@ -23,14 +24,17 @@ export const TIPOS = {
   Rational: T("Rational"), Nothing: T("Nothing"), Missing: T("Missing"),
   Signed: T("Signed"), AbstractString: T("AbstractString"), AbstractChar: T("AbstractChar"), DataType: T("DataType"),
   Symbol: T("Symbol"), Expr: T("Expr"), QuoteNode: T("QuoteNode"), GlobalRef: T("GlobalRef"), LineNumberNode: T("LineNumberNode"),
+  Exception: T("Exception"), IO: T("IO"),
 };
+// los tipos de error de Julia (capítulo 22)
+for (const n of ER.NOMBRES) TIPOS[n] = T(n);
 // Nombres de Julia que existen pero que el laboratorio aún no sabe ejecutar
 export const CONOCIDAS = new Set(("big BigInt BigFloat Float32 Int32 Int8 UInt8 UInt Complex complex im mean median " +
   "Set lpad rpad " +
   "chomp reduce foldl foldr mapreduce accumulate cumsum cumprod diff unique sortperm extrema " +
   "Matrix Array axes LinearAlgebra Statistics println_ " +
   "struct mutable abstract typeof_ isa eltype convert promote sizeof summarysize objectid similar " +
-  "ifelse iterate Iterators sum! maximum! push !== === try catch throw rethrow DomainError ArgumentError " +
+  "ifelse iterate Iterators sum! maximum! push !== === " +
   "time @time @elapsed @btime sleep open read write readline readlines eachline isfile").split(" "));
 
 const NUM = x => V.esNumero(x);
@@ -469,7 +473,9 @@ export function crearPrimitivas(prog) {
       case "AbstractMatrix": return MX.esMatriz(v);
       case "Matrix": return MX.esMatriz(v) && !v.vista && !v.bit;
       case "AbstractArray": return MX.esMatriz(v) || V.esVector(v);
+      case "IO": return v.T === "IO";
     }
+    if (tt === "Exception" || ER.NOMBRES.includes(tt)) return (v.T === "Excepcion" || v.T === "Struct") && P.esSubtipo(v.tipo, tt);
     if (/^Matrix\{(\w+)\}$/.test(tt)) return MX.esMatriz(v) && !v.vista && !v.bit && v.el === tt.slice(7, -1);
     if (/^Vector\{(\w+)\}$/.test(tt)) return v.T === "Vector" && v.el === tt.slice(7, -1);
     if (/^Vector\{<:(\w+)\}$/.test(tt)) return v.T === "Vector" && P.esSubtipo(v.el, tt.slice(9, -1));
@@ -515,6 +521,7 @@ export function crearPrimitivas(prog) {
       return x.nombre;
     }
     if (x.T === "VistaRara") throw new NoSoportado("escribir esta vista (view)");
+    if (x.T === "TestOK") return "Test Passed" + (x.lanzado ? "\n      Thrown: " + x.lanzado : "");
     if (x.vistaDe && !x.a.length) return x.el + "[]";
     if (x.vistaTxt) { const t = V.muestra(x), k = t.indexOf(":\n"); return (MX.esMatriz(x) ? MX.forma(x) : V.largo(x) + "-element") + " " + x.vistaTxt + " with eltype " + V.eltipo(x) + t.slice(k); }
     return V.muestra(x);
@@ -529,7 +536,11 @@ export function crearPrimitivas(prog) {
     if (!NUM(x)) throw errorMetodo(nombre, args);
     return f(x);
   };
-  const escribe = (args, salto) => { prog.salida += args.map(V.texto).join("") + (salto ? "\n" : ""); return NADA; };
+  // print(io, …) dentro de un Base.showerror (capítulo 22): escribe en el texto del error
+  const escribe = (args, salto) => {
+    if (args[0] && args[0].T === "IO") { args[0].buf += args.slice(1).map(V.texto).join("") + (salto ? "\n" : ""); return NADA; }
+    prog.salida += args.map(V.texto).join("") + (salto ? "\n" : ""); return NADA;
+  };
   fn.println = args => escribe(args, true);
   fn.print = args => escribe(args, false);
   fn.typeof = ([x]) => T(tipo(x));
@@ -854,7 +865,6 @@ export function crearPrimitivas(prog) {
   fn.findmax = busca("findmax", true, "par"); fn.findmin = busca("findmin", false, "par");
   fn.argmax = busca("argmax", true, "indice"); fn.argmin = busca("argmin", false, "indice");
   // error("…"): un ErrorException con ese texto
-  fn.error = (args) => { throw new ErrorJulia(args.map(a => a.T === "String" ? a.v : P.muestra ? V.texto(a) : V.repr(a)).join("")); };
   fn.minimum = extremo("minimum", false);
   fn.count = (args) => {
     const els = args.length === 2 ? P.itera(args[1]).map(e => prog.aplica(args[0], [e], new Map())) : P.itera(args[0]);
@@ -975,6 +985,8 @@ export function crearPrimitivas(prog) {
   AL.algebraLineal(P, fn);
   GR.graficos(P, fn, prog);
   AZ.funcionesDeAzar(P, fn, prog);
+  ER.operacionesDeErrores(P, fn, prog);
+  P.paquetes.Test = {};             // using Test: @test y @test_throws están en julia.mjs (son macros)
   const tabla = new Map(Object.entries(fn).map(([k, f]) => [k, { T: "Primitiva", nombre: k, f }]));
   const constantes = { Random: { T: "Modulo", nombre: "Random" }, Meta: { T: "Modulo", nombre: "Meta" }, π: V.PI, pi: V.PI, ℯ: V.E, Inf: F(Infinity), NaN: F(NaN), nothing: NADA, missing: FALTA, true: B(true), false: B(false) };
   // los paquetes que el programa ha cargado con using (DataFrames, Statistics)
