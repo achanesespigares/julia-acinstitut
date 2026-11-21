@@ -230,6 +230,13 @@ const ESTILOS_JL = `
 .tz .escalar{ min-height:40px; height:auto; max-width:100%; box-sizing:border-box; overflow-wrap:anywhere; white-space:pre-wrap; padding-top:6px; padding-bottom:6px; }   /* un texto largo parte la línea */
 .tz .vec.cambia .escalar{ background:var(--suave); border-color:var(--acento); }
 .tz .vec.local.cambia .escalar{ border-style:dashed; }
+.tz .vec.esvista .cas .v{ border-style:dashed; }   /* una vista: sus casillas son las de otro */
+.tz .cas .org{ font:600 10.5px/1 var(--mono); color:var(--acento); padding:0 4px; text-align:center; }
+.tz .vec.esvista .cas{ align-items:stretch; }   /* cada casilla tan ancha como el nombre de la de origen */
+.tz .vec.esvista .cas .idx{ text-align:center; }
+.tz .cas.envista .v{ box-shadow:inset 0 -5px 0 var(--acento); }
+.tz table.mat td.envista{ box-shadow:inset 0 -4px 0 var(--acento); }
+.tz .cas-v .ali{ font:600 11px/1.2 var(--texto); color:var(--acento); background:var(--suave); border:1px solid var(--acento); border-radius:3px; padding:2px 6px; margin-left:auto; flex:none; white-space:nowrap; }
 .tz .vec-cab .comparte{ font:600 11px/1.2 var(--texto); color:var(--acento); background:var(--suave); border:1px solid var(--acento); border-radius:3px; padding:2px 6px; }
 .tz .rango{ font:500 12.5px/1.35 var(--texto); color:var(--banda); }
 .tz .rango code{ font:600 12.5px/1 var(--mono); color:var(--tinta); }
@@ -337,6 +344,15 @@ function dibujaGrafico(g) {
 
 const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const code = s => "<code>" + esc(s) + "</code>";
+const plural = c => c === "vector" ? "vectores" : c + "s";
+// un argumento que es un objeto del programa principal (el mismo, no una copia) o una vista de uno suyo
+const nombreDeId = (id, est) => id ? Object.keys(est || {}).find(m => est[m] && est[m].id === id && !est[m].vista) : null;
+const deFuera = (v, est) => {
+  if (!v) return "";
+  if (v.vista) { const p = nombreDeId(v.vista.padre, est); return p ? " (una <b>vista</b> de " + code(p + "[" + v.vista.i + "]") + ": sus casillas son las de " + code(p) + ")" : ""; }
+  const m = !v.e && nombreDeId(v.id, est);
+  return m ? " (" + (v.d ? "la misma matriz" : v.dict ? "el mismo diccionario" : v.struct ? "el mismo objeto" : "el mismo vector") + " que " + code(m) + ", no una copia)" : "";
+};
 const PALABRAS = /\b(for|in|while|if|elseif|else|end|function|return|continue|break|begin|let|local|global|const|struct|mutable|using|import|module|do|try|catch|finally|true|false|nothing|missing)\b/g;
 
 function colorea(linea) {
@@ -411,6 +427,7 @@ const EJEMPLOS = [
   { nombre: "Tipos con parámetros", codigo: "struct Punto{T<:Real}\n    x::T\n    y::T\nend\nque_es(p::Punto{Int64}) = \"un punto de enteros\"\nque_es(p::Punto) = \"un punto de otro tipo\"\np = Punto(3, 4)\nq = Punto(1.5, 2.0)\nque_es(p)\nque_es(q)\ntypeof(q)" },
   { nombre: "Piedra, papel o tijera", codigo: "abstract type Jugada end\nstruct Piedra <: Jugada end\nstruct Papel <: Jugada end\nstruct Tijera <: Jugada end\ngana(a::Jugada, b::Jugada) = false\ngana(a::Piedra, b::Tijera) = true\ngana(a::Tijera, b::Papel) = true\ngana(a::Papel, b::Piedra) = true\ngana(Piedra(), Tijera())\ngana(Tijera(), Piedra())\ngana(Papel(), Papel())" },
   { nombre: "Un polinomio hecho código", codigo: "coefs = [1, -3, 2]\np = :(0)\nfor (k, c) in enumerate(coefs)\n    p = :($p + $c * x ^ $(k - 1))\nend\np\nx = 2\neval(p)\nx = 0.5\neval(p)", tabla: "k, c, p" },
+  { nombre: "Una vista que trabaja", codigo: "function aprueba!(v)\n    for i in eachindex(v)\n        v[i] = max(v[i], 5)\n    end\n    return v\nend\nnotas = [3, 8, 4, 9, 2, 7]\ngrupo_a = view(notas, 1:3)\naprueba!(grupo_a)\nnotas\ncopia = notas[4:6]\naprueba!(copia)\nnotas" },
   { nombre: "Contar los pasos", codigo: "v = [3, 8, 15, 21, 30, 42, 57, 64, 77, 88]\nx = 64\nizq = 1\nder = length(v)\npasos = 0\nwhile izq <= der\n    pasos += 1\n    m = (izq + der) ÷ 2\n    if v[m] == x\n        break\n    elseif v[m] < x\n        izq = m + 1\n    else\n        der = m - 1\n    end\nend\npasos", tabla: "pasos, izq, m, der" },
   { nombre: "Un bucle que suma", codigo: "notas = [9.0, 6.5, 4.0, 7.5]\ntotal = 0.0\nfor i in eachindex(notas)\n    if notas[i] >= 5\n        total += notas[i]\n    end\nend\ntotal", tabla: "i, notas[i], total" },
   { nombre: "Una función", codigo: "function media(v)\n    s = 0.0\n    for x in v\n        s += x\n    end\n    return s / length(v)\nend\n\nm = media([2, 4, 9])\nprintln(\"La media es \", m)" },
@@ -723,7 +740,7 @@ function dibujaTraza(el, C, D) {
     if (p.tipo === "llamada") {
       const m = p.marcos[p.marcos.length - 1], args = m.orden.filter(a => m.vars[a]);
       return "Se llama a " + code(m.llamada) + ". Julia le da a la función un espacio propio en la memoria" +
-        (args.length ? ", con sus argumentos: " + args.map(a => code(a) + " vale " + esc(muestra(m.vars[a]))).join(", ") : "") +
+        (args.length ? ", con sus argumentos: " + args.map(a => code(a) + " vale " + esc(muestra(m.vars[a])) + deFuera(m.vars[a], p.estado)).join(", ") : "") +
         ". El programa salta a la función" + (m.desde && m.desde !== p.linea ? " y la línea " + m.desde + " se queda esperando el resultado." : ".") + eleccion(p, m, args);
     }
     if (p.tipo === "devuelve")
@@ -760,7 +777,7 @@ function dibujaTraza(el, C, D) {
       const a = antes[n], b = ahora[n];
       const gemelo = b.id ? nombres(ahora, orden).find(m => m !== n && antes[m] && antes[m].id === b.id) : null;
       const cosa = b.dict ? "diccionario" : b.d ? "matriz" : b.struct ? "objeto" : b.plot ? "gráfico" : "vector", fem = !!b.d;
-      if (!a && gemelo) { frases.push("Se crea " + code(n) + ", pero no es " + (fem ? "una matriz nueva" : "un " + cosa + " nuevo") + ": es <b>otro nombre</b> para " + (fem ? "la misma" : "el mismo") + " " + cosa + " que " + code(gemelo) + ". Julia no copia " + (fem ? "las matrices" : "los " + cosa + "s") + " al asignarlos."); continue; }
+      if (!a && gemelo) { frases.push("Se crea " + code(n) + ", pero no es " + (fem ? "una matriz nueva" : "un " + cosa + " nuevo") + ": es <b>otro nombre</b> para " + (fem ? "la misma" : "el mismo") + " " + cosa + " que " + code(gemelo) + ". Julia no copia " + (fem ? "las matrices" : "los " + plural(cosa)) + " al asignarlos."); continue; }
       if (a && a.dict && b.dict && !igual(a, b)) {         // un diccionario que cambia
         const mapa = d => new Map(d.k.map((k, i) => [k, d.v[i]]));
         const ma = mapa(a), mb = mapa(b), fr = [];
@@ -783,6 +800,22 @@ function dibujaTraza(el, C, D) {
         if (b.df) { frases.push("Se crea " + code(n) + ": una tabla <b>nueva</b> con lo que elige " + code("[" + trozo[2] + "]") + " de " + code(trozo[1]) + ", de " + longitud(b) + (longitud(b) === 1 ? " fila" : " filas") + " y " + b.cols.length + (b.cols.length === 1 ? " columna" : " columnas") + "."); continue; }
         if (b.d) { frases.push("Se crea " + code(n) + ": una matriz <b>nueva</b> con las casillas de " + code(trozo[1]) + " que elige " + code("[" + trozo[2] + "]") + ", de " + b.d[0] + " × " + b.d[1] + " (" + code(b.t) + ")."); continue; }
         frases.push("Se crea " + code(n) + ": un vector <b>nuevo</b> con las casillas de " + code(trozo[1]) + " que elige " + code("[" + trozo[2] + "]") + (k ? ", " + k + (k === 1 ? " elemento" : " elementos") : ", ninguna: está vacío") + " (" + code(b.t) + ")."); continue;
+      }
+      const prof = ((L[p.linea - 1] || "").match(/=\s*deepcopy\(\s*(\w+)\s*\)/) || [])[1];
+      if (!a && b.vista) {
+        const pn = nombreDeId(b.vista.padre, ahora) || nombreDeId(b.vista.padre, p.estado), k = b.vista.pos.length;
+        const pv = pn ? (ahora[pn] || p.estado[pn]) : null;
+        const cas = pv ? b.vista.pos.map(j => code(pv.d ? pn + "[" + ((j - 1) % pv.d[0] + 1) + ", " + (Math.floor((j - 1) / pv.d[0]) + 1) + "]" : pn + "[" + j + "]")) : [];
+        frases.push("Se crea " + code(n) + ", una <b>vista</b>" + (pn ? " de " + code(pn + "[" + b.vista.i + "]") : "") + ": no es un vector nuevo y no copia nada. No tiene casillas propias" +
+          (cas.length && cas.length <= 6 ? ": sus " + (k === 1 ? "casilla es " + cas[0] : k + " casillas son " + cas.slice(0, -1).join(", ") + " y " + cas[k - 1]) : "") + ". Lo que se escriba en " + code(n) + " se escribirá en " + (pn ? code(pn) : "el vector del que sale") + ".");
+        continue;
+      }
+      if (!a && prof && b.id) { frases.push("Se crea " + code(n) + ", una copia <b>profunda</b> de " + code(prof) + ": un " + (b.d ? "objeto" : "vector") + " nuevo y, dentro, " + (b.ids ? "objetos nuevos, una copia de cada uno" : "una copia de todo lo que guarda") + ". " + code(n) + " ya no comparte nada con " + code(prof) + "."); continue; }
+      if (!a && copia && b.id && b.ids && b.ids.some(x => x != null)) {
+        const og = ahora[copia] || p.estado[copia], k = og && og.ids ? b.ids.findIndex((x, i) => x != null && og.ids[i] === x) : -1;
+        frases.push("Se crea " + code(n) + ", una copia de " + code(copia) + ": un vector nuevo, pero de <b>un solo piso</b>. Sus casillas señalan a los mismos objetos que las de " + code(copia) + ", sin copiarlos" +
+          (k >= 0 ? ": " + code(n + "[" + (k + 1) + "]") + " y " + code(copia + "[" + (k + 1) + "]") + " son el mismo objeto." : "."));
+        continue;
       }
       if (!a && copia && b.id) { frases.push("Se crea " + code(n) + ", una <b>copia</b> de " + code(copia) + ": " + (b.d ? "una matriz nueva" : "un vector nuevo") + ", con los mismos valores pero independiente."); continue; }
       if (!a && (b.t === "DataType" || b.t === "UnionAll") && /^\s*(mutable\s+struct|struct|abstract\s+type)\s/.test(L[p.linea - 1] || "")) {     // la definición de un tipo
@@ -862,6 +895,15 @@ function dibujaTraza(el, C, D) {
           : "Cambia " + code(n + "." + e.nombre) + ": ahora vale " + esc(muestra(e.v)) + ".").filter(Boolean);
         frases.push(...fr); hechos.push(n); continue;
       }
+      // copia[1].faltas = 5 cambia también clase[1] si es el mismo objeto (una copia de un solo piso)
+      if (a.v && b.v && a.ids && b.ids && !igual(a, b) && a.v.length === b.v.length) {
+        const camb = b.v.map((x, i) => x !== a.v[i] && b.ids[i] != null && a.ids[i] === b.ids[i] ? i : -1).filter(i => i >= 0);
+        const otro = i => { for (const m of hechos) { const x = ahora[m]; if (x && x.ids && x.ids.includes(b.ids[i])) return m + "[" + (x.ids.indexOf(b.ids[i]) + 1) + "]"; if (x && x.struct && x.id === b.ids[i]) return m; } return null; };
+        if (camb.length && camb.every(otro)) {
+          frases.push(...camb.map(i => "Y " + code(n + "[" + (i + 1) + "]") + " también cambia, porque es el mismo objeto que " + code(otro(i)) + ": los vectores son dos, pero el objeto es uno solo, sin copiar."));
+          hechos.push(n); continue;
+        }
+      }
       // B[1, 1] = 100 cambia también A si B salió de vec o reshape: son otro objeto, pero con las mismas casillas
       if (a.v && b.v && !igual(a, b) && enLinea && enLinea !== n && hechos.includes(enLinea) && !new RegExp("\\b" + n + "\\b").test(L[p.linea - 1] || "") && ahora[enLinea] && ahora[enLinea].v) {
         casillasDe.push(n); hechos.push(n); continue;
@@ -876,6 +918,13 @@ function dibujaTraza(el, C, D) {
       if (a.id && b.id && a.id !== b.id && a.v && b.v && !a.dict && !b.dict && !b.df && !b.plot && !b.struct) {
         const otros = nombres(p.estado, p.orden).filter(m => m !== n && p.estado[m] && p.estado[m].id === a.id);
         const valores = !b.d && !b.nv && b.v.length && b.v.length <= 6 ? ", " + code("[" + b.v.join(", ") + "]") : "";
+        const ya = nombres(ahora, orden).find(m => m !== n && ahora[m].id === b.id && !ahora[m].vista);
+        if (ya && !b.vista) {
+          const nadie = !otros.length && !nombres(ahora, orden).some(m => m !== n && ahora[m].id === a.id);
+          frases.push("El nombre " + code(n) + " deja " + (a.d ? "la matriz" : "el vector") + (!a.d && !a.nv && a.v.length <= 6 ? " " + code("[" + a.v.join(", ") + "]") : " de antes") + " y pasa a señalar " + (b.d ? "la misma matriz" : "el mismo vector") + " que " + code(ya) + ": ahora son dos nombres para un solo " + (b.d ? "objeto" : "vector") + "." +
+            (nadie ? " Al de antes ya no lo señala nadie, y Julia lo borrará de la memoria cuando necesite el sitio." : ""));
+          hechos.push(n); continue;
+        }
         frases.push("El nombre " + code(n) + " pasa a señalar " + (b.d ? "una matriz <b>nueva</b>" : "un vector <b>nuevo</b>") + valores + ": " + quees(b) + "." +
           (otros.length ? " " + otros.map(code).join(" y ") + " no cambia: sigue siendo " + (b.d ? "la matriz" : "el vector") + " de antes." : ""));
         hechos.push(n); continue;
@@ -892,7 +941,14 @@ function dibujaTraza(el, C, D) {
           else frases.push("Cambian " + camb.length + " casillas de " + code(n) + ".");
           hechos.push(n); continue;
         }
-        if (camb.length === 1) frases.push("Cambia " + code(n + "[" + (camb[0] + 1) + "]") + ": valía " + esc(a.v[camb[0]]) + " y ahora vale " + esc(b.v[camb[0]]) + ".");
+        const k0 = camb[0];
+        if (camb.length === 1 && a.ids && b.ids && b.ids[k0] != null && a.ids[k0] === b.ids[k0])
+          frases.push("Cambia por dentro el objeto de " + code(n + "[" + (k0 + 1) + "]") + ": valía " + esc(a.v[k0]) + " y ahora vale " + esc(b.v[k0]) + ". Es el mismo objeto, con un campo distinto." + (nombres(ahora, orden).some(m => (m !== n && ahora[m].ids && ahora[m].ids.includes(b.ids[k0])) || (ahora[m].struct && ahora[m].id === b.ids[k0])) ? "" : " Ningún otro nombre lo señala, así que nada más cambia."));
+        else if (camb.length === 1 && a.ids && b.ids && a.ids[k0] != null && a.ids[k0] !== b.ids[k0]) {
+          const sigue = nombres(ahora, orden).flatMap(m => m !== n && ahora[m].ids ? ahora[m].ids.flatMap((y, j) => y === a.ids[k0] ? [m + "[" + (j + 1) + "]"] : []) : []);
+          frases.push(code(n + "[" + (k0 + 1) + "]") + " pasa a señalar otro objeto, " + code(b.v[k0]) + "." + (sigue.length ? " " + sigue.map(code).join(" y ") + " no cambia: sigue señalando a " + code(a.v[k0]) + ". Cambiar una casilla de " + code(n) + " no toca el otro vector." : ""));
+        }
+        else if (camb.length === 1) frases.push("Cambia " + code(n + "[" + (k0 + 1) + "]") + ": valía " + esc(a.v[k0]) + " y ahora vale " + esc(b.v[k0]) + ".");
         else if (camb.length <= 4) frases.push("Cambian " + camb.map(i => code(n + "[" + (i + 1) + "]")).slice(0, -1).join(", ") + " y " + code(n + "[" + (camb[camb.length - 1] + 1) + "]") + ": ahora valen " + camb.map(i => esc(b.v[i])).slice(0, -1).join(", ") + " y " + esc(b.v[camb[camb.length - 1]]) + ".");
         else frases.push("Cambian " + camb.length + " elementos de " + code(n) + ".");
         hechos.push(n); continue;
@@ -923,6 +979,19 @@ function dibujaTraza(el, C, D) {
       const due = nombres(ahora, orden).find(m => ahora[m].struct && ahora[m].el.some(e => e.v.id === b.id));
       if (due) { const c = ahora[due].el.find(e => e.v.id === b.id).nombre; frases.push(code(n) + " y " + code(due + "." + c) + " son el <b>mismo vector</b>: al construir " + code(due) + ", Julia guardó en el campo el vector, sin copiarlo."); break; }
     }
+    const vL = enLinea && ahora[enLinea], vA = enLinea && antes[enLinea];
+    const padreV = vL && vL.vista ? casillasDe.find(m => ahora[m].id === vL.vista.padre) : null;
+    const hijasV = vL && !vL.vista ? casillasDe.filter(m => ahora[m].vista && ahora[m].vista.padre === vL.id) : [];
+    if (padreV && vA && vA.v && vA.v.length === vL.v.length) {        // w[1] = 0 escribe en v[2]
+      const camb = vL.v.map((x, i) => x !== vA.v[i] ? i : -1).filter(i => i >= 0), pv = ahora[padreV];
+      const en = i => code(pv.d ? padreV + "[" + ((vL.vista.pos[i] - 1) % pv.d[0] + 1) + ", " + (Math.floor((vL.vista.pos[i] - 1) / pv.d[0]) + 1) + "]" : padreV + "[" + vL.vista.pos[i] + "]");
+      frases.push("Y " + code(padreV) + " también cambia: " + code(enLinea) + " es una vista de sus casillas" + (camb.length && camb.length <= 4 ? ", y " + camb.map(i => code(enLinea + "[" + (i + 1) + "]")).join(", ") + (camb.length === 1 ? " es " : " son ") + camb.map(en).join(", ") : "") + ". La vista no tiene casillas propias: escribir en ella es escribir en " + code(padreV) + ".");
+      casillasDe.splice(casillasDe.indexOf(padreV), 1);
+    }
+    if (hijasV.length) {
+      frases.push("Y " + hijasV.map(code).join(" y ") + " también " + (hijasV.length === 1 ? "cambia: es una vista" : "cambian: son vistas") + " de " + code(enLinea) + ", y sus casillas son las de " + code(enLinea) + ".");
+      for (const m of hijasV) casillasDe.splice(casillasDe.indexOf(m), 1);
+    }
     if (casillasDe.length) {
       const y = casillasDe.map(code), varias = y.length > 1;
       frases.push("Y " + (varias ? y.slice(0, -1).join(", ") + " y " + y[y.length - 1] + " también cambian: no son" : y[0] + " también cambia: no es") + " el mismo objeto que " + code(enLinea) + ", pero " + (varias ? "guardan" : "guarda") + " sus valores en las <b>mismas casillas</b> de la memoria.");
@@ -933,7 +1002,9 @@ function dibujaTraza(el, C, D) {
       for (const n of nombres(p.estado, p.orden)) {
         const a = prev.estado[n], b = p.estado[n];
         if (a && igual(a, b)) continue;
-        frases.push((a ? "Cambia " : "Se crea ") + code(n) + " en el programa principal.");
+        const vf = a && b && b.id ? Object.keys(mp.vars).find(x => mp.vars[x] && mp.vars[x].vista && mp.vars[x].vista.padre === b.id) : null;
+        const pos = vf ? mp.vars[vf].vista.pos : [];
+        frases.push((a ? "Cambia " : "Se crea ") + code(n) + " en el programa principal" + (vf ? ": " + code(vf) + " es una vista de sus casillas" + (pos.length <= 6 ? " " + (pos.length === 1 ? pos[0] : pos.slice(0, -1).join(", ") + " y " + pos[pos.length - 1]) : "") + ", y lo que se escribe en " + code(vf) + " se escribe en " + code(n) : "") + ".");
       }
     }
     if (p.salida.length > prev.salida.length) {
@@ -946,6 +1017,9 @@ function dibujaTraza(el, C, D) {
       const cola = /^:\(/.test(nueva[0]) && nueva.length === 1 ? ": " + muestra1 + ". Una expresión se escribe entre " + code(":(") + " y " + code(")") + ": es código, no un resultado." : esUniforme ? ": la identidad, que Julia escribe " + code(nueva[1]) + " porque no tiene un tamaño fijo: toma el de la matriz con la que opera." : esTabla ? (nueva.length > 1 ? ": " + (nueva[0] === "DataFrameRow" ? "una fila de la tabla" : "la tabla entera") + ", con una línea de título, los nombres y los tipos de las columnas, y una fila por línea con su número." : ": " + muestra1 + ".") : esVista ? ": una <b>vista</b> (" + code("view") + ") de las casillas que han cambiado, con una cabecera que dice de dónde salen." :
         esMatriz ? ": la matriz entera, con una línea de cabecera (filas × columnas y su tipo) y una fila de la matriz por línea." :
         esVector ? ": el vector entero, con una línea de cabecera (su tamaño y su tipo) y una casilla por línea." : ": " + muestra1 + ".";
+      const vistaVar = /^\w+$/.test(linea) && p.estado[linea] && p.estado[linea].vista ? p.estado[linea] : (mp && /^\w+$/.test(linea) && mp.vars[linea] && mp.vars[linea].vista ? mp.vars[linea] : null);
+      const deQue = (nueva[0].match(/view\(::([^,]+),/) || [])[1];
+      const colaV = vistaVar ? ": una <b>vista</b>. La cabecera dice cuántas casillas tiene, de qué vector sale" + (deQue ? " (un " + code(deQue) + ")" : "") + " y qué índices elige, " + code(vistaVar.vista.i) + "; debajo, sus valores, que son los de ese vector." : null;
       const bang = (linea.match(/^(\w+!)\(/) || [])[1];
       const mac = linea.match(/^@(\w+)\s*(.*)$/), propia = mac && p.estado["@" + mac[1]];
       const ev = linea.match(/\beval\((\w+)\)/), evx = ev && p.estado[ev[1]] && p.estado[ev[1]].t === "Expr" ? p.estado[ev[1]] : null;
@@ -957,10 +1031,11 @@ function dibujaTraza(el, C, D) {
       else if (/\.[-+*\/^]=/.test(linea)) frases.push("Una operación como " + code(linea.match(/\.[-+*\/^]=/)[0]) + " cambia las casillas igual que " + code(".=") + ", pero para la consola no es una asignación: Julia muestra su resultado" + cola);
       else if (/^@show\b/.test(linea)) frases.push(code("@show") + " escribe en la consola la expresión y su valor: " + muestra1 + ".");
       else if (/^print(ln)?\(/.test(linea)) frases.push(code(linea.match(/^print(ln)?/)[0]) + " escribe en la consola " + muestra1 + (/^println/.test(linea) ? ", y salta de línea." : "."));
-      else if (/^[\w.!]+$/.test(linea)) frases.push("Escribir solo " + code(linea) + " hace que Julia muestre su valor en la consola" + cola);
+      else if (/^[\w.!]+$/.test(linea)) frases.push("Escribir solo " + code(linea) + " hace que Julia muestre su valor en la consola" + (colaV || cola));
       else if (bang && esVector) frases.push(code(bang) + " devuelve el vector modificado, y Julia lo muestra en la consola" + cola);
       else if (!/(^|[^=!<>≈])=($|[^=])/.test(linea.replace(/"[^"]*"/g, ""))) {
         frases.push("La línea es una expresión: Julia calcula " + code(linea) + " y muestra su valor en la consola" + cola);
+        if (/===/.test(linea)) frases.push(/(^|[^=!])==($|[^=])/.test(linea) ? code("==") + " compara los valores, casilla a casilla; " + code("===") + " pregunta si los dos lados son el <b>mismo objeto</b> de la memoria." : code("===") + " no compara los valores: pregunta si los dos lados son el <b>mismo objeto</b> de la memoria.");
         // una función definida con eval no tiene firma escrita en el programa: el visualizador no entra en ella
         const fe = (linea.match(/^(\w+!?)\(/) || [])[1], fv = fe && p.estado[fe];
         if (fv && fv.t === "function" && !/\(/.test(fv.r) && P.slice(0, P.indexOf(p)).some(x => x.estado && x.estado[fe]) && !P.some(x => x.tipo === "llamada" && x.funcion === fe)) frases.push("El código de " + code(fe) + " no está escrito en el programa: lo construyó el propio programa mientras corría, y por eso el visualizador no puede entrar en la función.");
@@ -1000,11 +1075,15 @@ function dibujaTraza(el, C, D) {
   function casillas(v, previo, opciones = {}) {
     const cambia = i => previo && previo.v && previo.v.length === v.v.length && previo.v[i] !== v.v[i];
     // valores largos, o de un tipo propio (Punto{Int64}(1, 2)): uno debajo de otro
-    if (!opciones.grande && (v.v.some(x => String(x).length > 24) || (v.v.length > 1 && v.v.every(x => /^\w+(\{.*\})?\(.+\)$/.test(String(x))) && v.v.join("").length > 36)))
-      return '<div class="fila-vert">' + v.v.map((x, i) => '<div class="cas-v' + (cambia(i) ? " cambia" : "") + '"><span class="idx">[' + (i + 1) + ']</span><span class="v">' + esc(x) + "</span></div>").join("") + "</div>";
+    const ali = opciones.alias || [], hayAli = !!opciones.alias;      // un vector de objetos: uno debajo de otro, con sus marcas
+    if (hayAli || (!opciones.grande && (v.v.some(x => String(x).length > 24) || (v.v.length > 1 && v.v.every(x => /^\w+(\{.*\})?\(.+\)$/.test(String(x))) && v.v.join("").length > 36))))
+      return '<div class="fila-vert">' + v.v.map((x, i) => '<div class="cas-v' + (cambia(i) ? " cambia" : "") + '"><span class="idx">[' + (i + 1) + ']</span><span class="v">' + esc(x) + "</span>" +
+        (ali[i] && ali[i].length ? '<span class="ali" title="la misma ficha, no una copia">↔ ' + ali[i].map(esc).join(", ") + "</span>" : "") + "</div>").join("") + "</div>";
+    const marc = opciones.marcadas, org = opciones.origen;
     const bool = v.el === "Bool" && v.v.every(x => x === "true" || x === "false");
     return '<div class="fila-cas' + (bool ? " bool" : "") + (opciones.grande ? " grande" + (v.v.some(x => String(x).length > 4) ? " largo" : "") : "") + '">' + v.v.map((x, i) =>
-      '<span class="cas' + (bool ? (x === "true" ? " si" : " no") : "") + (cambia(i) ? " cambia" : "") + (opciones.foco === i + 1 ? " foco" : "") + '"><span class="v">' + esc(x) + '</span><span class="idx">[' + (i + 1) + "]</span></span>").join("") +
+      '<span class="cas' + (bool ? (x === "true" ? " si" : " no") : "") + (cambia(i) ? " cambia" : "") + (opciones.foco === i + 1 ? " foco" : "") + (marc && marc.has(i) ? " envista" : "") + '"><span class="v">' + esc(x) + '</span><span class="idx">[' + (i + 1) + "]</span>" +
+        (org && org[i] ? '<span class="org">' + esc(org[i]) + "</span>" : "") + "</span>").join("") +
       (v.nv ? '<span class="cas mas"><span class="v">… y ' + (v.nv - v.v.length).toLocaleString("es-ES") + ' más</span></span>' : "") +
       (opciones.foco ? '<span class="puntero"><span class="et">' + esc(opciones.puntero) + " = " + opciones.foco + '</span><span class="flecha"></span></span>' : "") + "</div>";
   }
@@ -1077,7 +1156,7 @@ function dibujaTraza(el, C, D) {
     if (v.e && C.letras && esTipoTexto(v.t) && v.v[0].length > 2 && [...sinComillas(v.v[0])].length <= 40) return filaLetras(v, a);
     if (v.e && C.letras && v.t === "Char") { const c = sinComillas(v.v[0]); return '<span class="escalar">' + esc(v.v[0]) + '</span><span class="codigo">código ' + (c.length ? c.codePointAt(0) : "") + "</span>"; }
     if (v.e) return '<span class="escalar">' + esc(v.v[0]) + "</span>";
-    if (v.d) return rejilla(v, a, op.celda);
+    if (v.d) return rejilla(v, a, op.celda, op.marcadas);
     if (v.tupla) return '<div class="lista">' + v.el.map((e, i) => {
       const ea = a && a.el && a.el[i] ? a.el[i].v : null;
       return '<div class="elem' + (a && (!ea || !igual(ea, e.v)) ? " cambia" : "") + '"><div class="elem-cab"><span class="nom">' + (e.nombre ? esc(e.nombre) : "[" + (i + 1) + "]") + "</span>" + cabecera(e.v) + "</div>" + valor(e.v, ea) + "</div>";
@@ -1105,7 +1184,7 @@ function dibujaTraza(el, C, D) {
     return html + "</tbody></table></div>";
   }
   // Una matriz: Julia, como R, guarda los valores por columnas
-  function rejilla(v, a, celda) {
+  function rejilla(v, a, celda, marcadas = null) {
     const [nf, nc] = v.d, mismo = a && a.d && a.d.join() === v.d.join();
     let html = '<div class="rejilla"><table class="mat"><thead><tr><th></th>' +
       Array.from({ length: nc }, (_, j) => '<th class="' + (celda && celda[1] === j + 1 ? "foco" : "") + '">[:, ' + (j + 1) + "]</th>").join("") + "</tr></thead><tbody>";
@@ -1113,7 +1192,7 @@ function dibujaTraza(el, C, D) {
       html += '<tr><th class="' + (celda && celda[0] === i + 1 ? "foco" : "") + '">[' + (i + 1) + ", :]</th>";
       for (let j = 0; j < nc; j++) {
         const x = i + j * nf;
-        const cl = (mismo && a.v[x] !== v.v[x] ? " cambia" : "") + (celda && celda[0] === i + 1 && celda[1] === j + 1 ? " foco" : "");
+        const cl = (mismo && a.v[x] !== v.v[x] ? " cambia" : "") + (celda && celda[0] === i + 1 && celda[1] === j + 1 ? " foco" : "") + (marcadas && marcadas.has(x) ? " envista" : "");
         html += '<td class="' + cl.trim() + '">' + esc(v.v[x]) + "</td>";
       }
       html += "</tr>";
@@ -1130,16 +1209,32 @@ function dibujaTraza(el, C, D) {
       .concat(ns.filter(m => est[m].struct).flatMap(m => est[m].el.filter(e => e.v.id === est[n].id).map(e => esc(m + "." + e.nombre))))
       .concat(fuera ? Object.keys(fuera.vars).filter(m => fuera.vars[m] && fuera.vars[m].id === est[n].id).map(m => esc(m) + " " + esc(fuera.donde)) : []) : [];
     const lista = conFoco && C.foco && ns.includes(C.foco) ? [C.foco].concat(ns.filter(n => n !== C.foco)) : ns;
+    // todos los nombres a la vista: los de este ámbito y los del otro, con su apellido
+    const todos = ns.map(m => [m, est[m], m]).concat(fuera ? Object.keys(fuera.vars).filter(m => fuera.vars[m]).map(m => [m, fuera.vars[m], m + " " + fuera.donde]) : []);
+    const deId = (id, menos) => { const t = todos.find(([m, x]) => x.id === id && m !== menos && !x.vista); return t ? t : null; };
+    // las vistas: de qué vector son, y en el vector, qué casillas mira cada una
+    const vistaTxt = v => { const p = deId(v.vista.padre); return p ? p[0] + "[" + v.vista.i + "]" : null; };
+    const origen = v => { const p = deId(v.vista.padre); if (!p) return null;
+      return v.vista.pos.map(k => p[1].d ? p[0] + "[" + ((k - 1) % p[1].d[0] + 1) + ", " + (Math.floor((k - 1) / p[1].d[0]) + 1) + "]" : p[0] + "[" + k + "]"); };
+    const miranle = (n, v) => todos.filter(([m, x]) => x.vista && x.vista.padre === v.id && v.id);
+    // las fichas de un vector que son la misma que otra casilla o que otra variable
+    const alias = (n, v) => v.ids ? v.ids.map((id, i) => id == null ? [] : todos.flatMap(([m, x, et]) =>
+      (x.ids ? x.ids.flatMap((y, k) => y === id && !(m === n && k === i && x === v) ? [m + "[" + (k + 1) + "]" + et.slice(m.length)] : []) : []).concat(x.struct && x.id === id ? [et] : []))) : null;
     for (const n of lista) {
       const v = est[n], a = ant && ant[n];
       const cambio = !a || !igual(a, v);
       const pp = C.puntero;
       const foco = conFoco && n === C.foco && v.v && !v.d && pp && !Array.isArray(pp) && est[pp] && est[pp].v ? Number(est[pp].v[0]) : null;
       const celda = conFoco && n === C.foco && v.d && Array.isArray(pp) && pp.every(x => est[x] && est[x].v) ? pp.map(x => Number(est[x].v[0])) : null;
-      const gem = comparte(n);
-      html += '<div class="vec' + (cambio && ant ? " cambia" : "") + (v.local ? " local" : "") + (v.rango ? " esrango" : "") + '"><div class="vec-cab"><span class="nom">' + esc(n) + "</span>" + cabecera(v) +
-        (gem.length ? '<span class="comparte">↔ ' + (v.dict ? "el mismo diccionario" : v.d ? "la misma matriz" : v.struct ? "el mismo objeto" : v.plot ? "el mismo gráfico" : "el mismo vector") + " que " + gem.join(", ") + "</span>" : "") + "</div>" +
-        (v.t === "function" ? '<div class="otro">' + esc(v.r) + "</div>" : valor(v, a, { grande: conFoco && n === C.foco && !v.d && !v.e, foco: foco >= 1 && foco <= (v.v || []).length ? foco : null, puntero: C.puntero, celda })) + "</div>";
+      const gem = v.vista ? [] : comparte(n).concat(v.struct && v.id ? todos.flatMap(([m, x, et]) => x.ids ? x.ids.flatMap((y, k) => y === v.id ? [esc(m + "[" + (k + 1) + "]" + et.slice(m.length))] : []) : []) : []);
+      const mir = v.vista ? [] : miranle(n, v), vt = v.vista ? vistaTxt(v) : null;
+      const marcadas = mir.length ? new Set(mir.flatMap(([, x]) => x.vista.pos.map(k => k - 1))) : null;
+      html += '<div class="vec' + (cambio && ant ? " cambia" : "") + (v.local ? " local" : "") + (v.rango ? " esrango" : "") + (v.vista ? " esvista" : "") + '"><div class="vec-cab"><span class="nom">' + esc(n) + "</span>" + cabecera(v) +
+        (gem.length ? '<span class="comparte">↔ ' + (v.dict ? "el mismo diccionario" : v.d ? "la misma matriz" : v.struct ? "el mismo objeto" : v.plot ? "el mismo gráfico" : "el mismo vector") + " que " + gem.join(", ") + "</span>" : "") +
+        (v.vista ? '<span class="comparte" title="no tiene casillas propias: son las de otro vector">vista de ' + (vt ? code(vt) : "otro vector") + "</span>" : "") +
+        (mir.length ? '<span class="comparte" title="las casillas marcadas debajo">' + mir.map(([m, x, et]) => esc(et)).join(", ") + (mir.length === 1 ? " mira " : " miran ") + (marcadas.size === 1 ? "una casilla" : marcadas.size + " casillas") + "</span>" : "") + "</div>" +
+        (v.t === "function" ? '<div class="otro">' + esc(v.r) + "</div>" : valor(v, a, { grande: conFoco && n === C.foco && !v.d && !v.e, foco: foco >= 1 && foco <= (v.v || []).length ? foco : null, puntero: C.puntero, celda,
+          marcadas, origen: v.vista ? origen(v) : null, alias: alias(n, v) })) + "</div>";
     }
     return html;
   }

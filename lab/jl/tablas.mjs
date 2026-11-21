@@ -143,7 +143,9 @@ export function funcionesDeTablas(P, fn, prog) {
         if (f.T === "Pair") { nombre = simbolo(f.b, "combine"); f = f.a; } else nombre = c + "_" + nombreF(f);
         if (f.T !== "Primitiva" && f.T !== "Funcion") throw new NoSoportado("combine con " + tipo(f));
         // con groupby, la función recibe una vista de las filas del grupo (un SubArray); sin él, la columna misma
-        const vista = gr => { const s = sub(v, gr); s.tipoTxt = "SubArray{" + V.eltipo(v) + ", 1, " + tipo(v) + ", Tuple{SubArray{Int64, 1, Vector{Int64}, Tuple{UnitRange{Int64}}, true}}, false}"; return s; };
+        const vista = gr => { const s = sub(v, gr); s.tipoTxt = "SubArray{" + V.eltipo(v) + ", 1, " + tipo(v) + ", Tuple{SubArray{Int64, 1, Vector{Int64}, Tuple{UnitRange{Int64}}, true}}, false}";
+          s.vistaDe = { p: v, pos: gr.map(i => i - 1), i: "[" + gr.join(", ") + "]", clave: "vista|grupo|" + v.oid + "|" + gr.join(",") };
+          s.a = new Proxy(s.a, { set() { throw new NoSoportado("cambiar las casillas de un grupo desde la función de combine"); } }); return s; };
         vals = grupos.map(gr => prog.aplica(f, [g.T === "GrupoDF" ? vista(gr) : v], new Map()));
       } else throw new NoSoportado("esta forma de resumir en combine");
       if (vals.some(x => V.esVector(x) || x.T === "Tuple" || esDF(x))) throw new NoSoportado("combine con una función que no da un solo valor");

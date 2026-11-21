@@ -29,7 +29,7 @@ export const CONOCIDAS = new Set(("big BigInt BigFloat Float32 Int32 Int8 UInt8 
   "Set lpad rpad " +
   "chomp reduce foldl foldr mapreduce accumulate cumsum cumprod diff unique sortperm extrema " +
   "Matrix Array axes LinearAlgebra Statistics println_ " +
-  "struct mutable abstract typeof_ isa eltype convert promote sizeof summarysize objectid ismutable deepcopy view @view @views similar " +
+  "struct mutable abstract typeof_ isa eltype convert promote sizeof summarysize objectid similar " +
   "ifelse iterate Iterators sum! maximum! push !== === try catch throw rethrow DomainError ArgumentError " +
   "time @time @elapsed @btime sleep open read write readline readlines eachline isfile").split(" "));
 
@@ -221,6 +221,7 @@ export function crearPrimitivas(prog) {
     return a === b;
   };
   P.identicos = (a, b) => {
+    if (a.vistaDe || b.vistaDe) return !!(a.vistaDe && b.vistaDe) && a.vistaDe.clave === b.vistaDe.clave && tipo(a) === tipo(b);       // dos vistas de lo mismo son ===
     if (a.T === "Struct" || b.T === "Struct") return P.identicosStruct(a, b);
     if (MX.esVista(a) && MX.esVista(b)) return a.vista === b.vista && a.p === b.p;     // A' === A' (la vista no tiene identidad propia)
     if (a.T === "Vector" || a.T === "BitVector" || a.T === "Matrix") return a === b;
@@ -514,6 +515,7 @@ export function crearPrimitivas(prog) {
       return x.nombre;
     }
     if (x.T === "VistaRara") throw new NoSoportado("escribir esta vista (view)");
+    if (x.vistaDe && !x.a.length) return x.el + "[]";
     if (x.vistaTxt) { const t = V.muestra(x), k = t.indexOf(":\n"); return (MX.esMatriz(x) ? MX.forma(x) : V.largo(x) + "-element") + " " + x.vistaTxt + " with eltype " + V.eltipo(x) + t.slice(k); }
     return V.muestra(x);
   };
@@ -531,6 +533,101 @@ export function crearPrimitivas(prog) {
   fn.println = args => escribe(args, true);
   fn.print = args => escribe(args, false);
   fn.typeof = ([x]) => T(tipo(x));
+  // ── Copias y vistas (capítulo 21) ───────────────────────────────────
+  // Una vista (SubArray) es un vector cuyas casillas son casillas de otro: sus elementos se leen y se escriben
+  // en el padre, a través de un Proxy. Solo vistas de una dimensión: de un vector, o una fila o columna (o un
+  // trozo) de una matriz.
+  const claves = new WeakMap(); let nclave = 0;
+  const claveDe = o => { if (!claves.has(o)) claves.set(o, ++nclave); return claves.get(o); };
+  const SLICE = "Base.Slice{Base.OneTo{Int64}}";
+  P.subvista = (x, i) => {
+    if (x.vistaDe) throw new NoSoportado("una vista de otra vista");
+    let pos, itxt, ttxt, rapido = true;
+    if (x.T === "Vector") {
+      if (i.T === "Indices2") throw new NoSoportado("dos índices en un vector");
+      const n = x.a.length, malo = t => { throw new ErrorJulia("BoundsError: attempt to access " + n + "-element " + tipo(x) + " at index [" + t + "]"); };
+      if (i.T === "Colon") { pos = x.a.map((_, k) => k); itxt = ":"; ttxt = SLICE; }
+      else if ((i.T === "UnitRange" && !i.oneTo) || i.T === "StepRange") {
+        const ks = V.elementos(i).map(e => Number(e.v));
+        if (ks.some(k => k < 1 || k > n)) malo(V.repr(i));
+        pos = ks.map(k => k - 1); itxt = V.repr(i); ttxt = i.T === "UnitRange" ? "UnitRange{Int64}" : "StepRange{Int64, Int64}";
+      } else if (i.T === "Vector" && i.el === "Int64") {
+        const ks = i.a.map(e => Number(e.v));
+        if (ks.some(k => k < 1 || k > n)) malo(V.repr(i));
+        pos = ks.map(k => k - 1); itxt = V.repr(i); ttxt = "Vector{Int64}"; rapido = false;
+      } else if (i.T === "BitVector" || (i.T === "Vector" && i.el === "Bool")) {
+        if (i.a.length !== n) malo(V.repr(i));
+        pos = i.a.map((e, k) => e.v ? k : -1).filter(k => k >= 0);
+        itxt = "[" + pos.map(k => k + 1).join(", ") + "]"; ttxt = "Vector{Int64}"; rapido = false;
+      } else if (i.T === "Int64") throw new NoSoportado("una vista de una sola casilla (de dimensión 0)");
+      else throw new NoSoportado("una vista con este índice (" + tipo(i) + ")");
+    } else if (MX.esMatriz(x) && !x.vista && !x.bit) {
+      if (i.T !== "Indices2") throw new NoSoportado("una vista de una matriz con un solo índice");
+      const [r, c] = i.a, [f, nc] = MX.dims(x);
+      const lista = (ind, n) => ind.T === "Colon" ? { ks: Array.from({ length: n }, (_, k) => k + 1), txt: "1:" + n, it: ":", tt: SLICE }
+        : ind.T === "Int64" ? { ks: [Number(ind.v)], txt: V.repr(ind), it: V.repr(ind), tt: "Int64", uno: true }
+        : ind.T === "UnitRange" && !ind.oneTo ? { ks: V.elementos(ind).map(e => Number(e.v)), txt: V.repr(ind), it: V.repr(ind), tt: "UnitRange{Int64}" } : null;
+      const lr = lista(r, f), lc = lista(c, nc);
+      if (!lr || !lc || (!lr.uno && !lc.uno) || (lr.uno && lc.uno)) throw new NoSoportado("esta vista de una matriz: el laboratorio solo hace vistas de una fila o de una columna (o de un trozo suyo)");
+      if (lr.ks.some(k => k < 1 || k > f) || lc.ks.some(k => k < 1 || k > nc)) throw new ErrorJulia("BoundsError: attempt to access " + f + "×" + nc + " " + MX.tipoM(x) + " at index [" + lr.txt + ", " + lc.txt + "]");
+      pos = [];
+      for (const cc of lc.ks) for (const rr of lr.ks) pos.push((cc - 1) * f + (rr - 1));
+      itxt = lr.it + ", " + lc.it; ttxt = lr.tt + ", " + lc.tt;
+    } else throw new NoSoportado("una vista de un " + tipo(x));
+    const p = x, n = pos.length;
+    const a = new Proxy(new Array(n).fill(null), {
+      get(t, k, r) { if (typeof k === "string" && /^\d+$/.test(k)) { const j = +k; return j < n ? p.a[pos[j]] : undefined; } if (k === "length") return n; return Reflect.get(t, k, r); },
+      set(t, k, v) {
+        if (typeof k === "string" && /^\d+$/.test(k) && +k < n) { p.a[pos[+k]] = v; return true; }
+        if (k === "length" && v === n) return true;
+        throw new NoSoportado("cambiar el tamaño de una vista: Julia no deja (da un MethodError de resize!)");
+      },
+    });
+    const el = x.el, tpadre = MX.esMatriz(x) ? MX.tipoM(x) : tipo(x);
+    return Object.assign(V.vec(el, a), {
+      tipoTxt: "SubArray{" + el + ", 1, " + tpadre + ", Tuple{" + ttxt + "}, " + rapido + "}",
+      vistaTxt: "view(::" + tpadre + ", " + itxt + ")",
+      vistaDe: { p, pos, i: itxt, clave: "vista|" + claveDe(p) + "|" + itxt },
+    });
+  };
+  fn.view = args => {
+    if (args.length < 2) throw errorMetodo("view", args);
+    return P.subvista(args[0], args.length === 2 ? args[1] : { T: "Indices2", a: args.slice(1) });
+  };
+  fn.parent = ([x]) => {
+    if (x.vistaDe) return x.vistaDe.p;
+    if (MX.esVista && MX.esVista(x)) throw new NoSoportado("parent de una vista traspuesta");
+    if (x.T === "Vector" || x.T === "BitVector" || MX.esMatriz(x)) return x;
+    throw new NoSoportado("parent de un " + tipo(x));
+  };
+  // ismutable: comprobado en Julia 1.13 (un texto y un símbolo dicen true; una vista, false)
+  fn.ismutable = ([x]) => {
+    if (x.vistaDe || (MX.esVista && MX.esVista(x))) return B(false);
+    if (["Vector", "BitVector", "Matrix", "Dict", "String", "Symbol", "Tipo", "Plot", "DataFrame"].includes(x.T)) return B(true);
+    if (x.T === "Struct") return B(!!x.mut);
+    if (V.esNumero(x) || ["Char", "Nothing", "Missing", "Tuple", "NamedTuple", "Pair", "Funcion", "Primitiva"].includes(x.T) || V.esRango(x)) return B(false);
+    throw new NoSoportado("ismutable de un " + tipo(x));
+  };
+  // deepcopy: copia todo lo que cuelga del valor, recordando lo ya copiado (si una ficha sale dos veces, la copia
+  // también sale dos veces, la misma), como Base.deepcopy
+  fn.deepcopy = ([x]) => {
+    const hechos = new Map();
+    const dc = y => {
+      if (hechos.has(y)) return hechos.get(y);
+      if (V.esEscalar(y) || V.esRango(y) || y.T === "Funcion" || y.T === "Primitiva" || y.T === "Tipo") return y;
+      if (y.vistaDe || (MX.esVista && MX.esVista(y))) throw new NoSoportado("deepcopy de una vista");
+      let r;
+      if (y.T === "Vector") { r = V.vec(y.el, []); hechos.set(y, r); r.a.push(...y.a.map(dc)); if (y.tipoTxt) r.tipoTxt = y.tipoTxt; return r; }
+      if (y.T === "BitVector") { r = V.bitvec([...y.a]); hechos.set(y, r); return r; }
+      if (MX.esMatriz(y)) { r = MX.mat(y.el, y.f, y.c, [], y.bit); hechos.set(y, r); r.a.push(...y.a.map(dc)); return r; }
+      if (y.T === "Struct") { r = { ...y, a: [] }; hechos.set(y, r); r.a.push(...y.a.map(dc)); return r; }
+      if (y.T === "Tuple") return { T: "Tuple", a: y.a.map(dc) };
+      if (y.T === "NamedTuple") return { ...y, a: y.a.map(dc) };
+      if (y.T === "Pair") return { ...y, a: dc(y.a), b: dc(y.b) };
+      throw new NoSoportado("deepcopy de un " + tipo(y));
+    };
+    return dc(x);
+  };
   // ── El código como dato (capítulo 20) ───────────────────────────────
   fn.Expr = args => {
     if (!args.length) throw errorMetodo("Expr", args);
@@ -860,6 +957,19 @@ export function crearPrimitivas(prog) {
   TX.funcionesDeTexto(fn, prog);
   DC.funcionesDeDict(fn, P, prog);
   MX.operacionesDeMatrices(P, fn, prog);
+  // empty! y fill! de vectores (el empty! de Dict lo pone dict.mjs): cambian las casillas, el vector es el mismo
+  const emptyDict = fn["empty!"];
+  fn["empty!"] = args => {
+    const [v] = args;
+    if (v && v.T === "Vector" || v && v.T === "BitVector") { mutable("empty!", v); v.a.length = 0; return v; }
+    return emptyDict(args);
+  };
+  fn["fill!"] = ([x, y]) => {
+    if (!(x.T === "Vector" || x.T === "BitVector" || (MX.esMatriz(x) && !x.vista))) throw errorMetodo("fill!", [x, y]);
+    const el = x.T === "BitVector" ? "Bool" : MX.esMatriz(x) ? x.el : x.el, w = V.convierte(y, el);
+    for (let k = 0; k < x.a.length; k++) x.a[k] = w;
+    return x;
+  };
   TP.tiposPropios(P, fn);
   TB.funcionesDeTablas(P, fn, prog);
   AL.algebraLineal(P, fn);

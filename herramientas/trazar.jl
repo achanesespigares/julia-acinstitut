@@ -185,6 +185,16 @@ function describe(x, prof = 0)
         n > 30 && (d["nv"] = n)
         x isa AbstractRange && (d["rango"] = un_valor(x))
         x isa AbstractRange || (d["id"] = un_id(x))
+        # capítulo 21: un vector de objetos mutables (fichas) lleva la identidad de cada uno, para ver que copy
+        # copia el vector pero no las fichas
+        propio(e) = ismutable(e) && parentmodule(typeof(e)) === T[].modulo && isstructtype(typeof(e))
+        n <= 30 && any(propio, xs) && (d["ids"] = Any[propio(e) ? un_id(e) : nothing for e in xs])
+        # una vista (view, @view): de qué vector o matriz es, con qué índices y qué casillas suyas ve
+        if x isa SubArray && parent(x) isa Array && n <= 30
+            ind(i) = i isa Base.Slice ? ":" : un_valor(i)
+            pos = vec(collect(LinearIndices(parent(x))[parentindices(x)...]))
+            d["vista"] = Dict{String,Any}("padre" => un_id(parent(x)), "i" => join(map(ind, parentindices(x)), ", "), "pos" => pos)
+        end
         return d
     end
     if x isa AbstractMatrix && length(x) <= 400

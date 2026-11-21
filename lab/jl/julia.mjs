@@ -121,7 +121,7 @@ class Programa {
     if (x.T === "FilaDF") return { t: V.tipo(x), r: this.prim.muestra(x) };
     if (x.T === "Plot") return { t: V.tipo(x), plot: this.prim.describeGrafico(x), id: this.unId(x) };
     if (x.T === "GrupoDF") throw new NoSoportado("guardar un groupby en una variable: úsalo dentro de combine(…)");
-    if (x.vistaTxt || x.T === "VistaRara") throw new NoSoportado("guardar una vista (view) en una variable");
+    if ((x.vistaTxt && !x.vistaDe) || x.T === "VistaRara") throw new NoSoportado("guardar una vista (view) en una variable");
     if (MX.esMatriz(x) && V.largo(x) > 400) return { t: V.tipo(x), r: MX.muestraM(x, true) };
     if (MX.esMatriz(x) && V.largo(x) <= 400) {
       // A' es la misma vista cada vez que se escribe (objectid): se reconoce por su matriz, sin darle número a esta
@@ -135,7 +135,11 @@ class Programa {
       const n = V.largo(x), els = V.elementos(x), xs = n > 30 ? els.slice(0, 20) : els;
       const d = { t: V.tipo(x), v: xs.map(e => V.repr(e)), el: V.eltipo(x) };
       if (n > 30) d.nv = n;
-      if (V.esRango(x)) d.rango = V.repr(x); else d.id = this.unId(x);
+      // una vista no tiene identidad propia: dos vistas iguales de lo mismo son === (como en trazar.jl, un IdDict)
+      if (V.esRango(x)) d.rango = V.repr(x); else d.id = this.unId(x.vistaDe ? x.vistaDe.clave : x);
+      // capítulo 21: la identidad de cada ficha de un vector de objetos mutables, y de qué es vista una vista
+      if (n <= 30 && els.some(e => e.T === "Struct" && e.mut)) d.ids = els.map(e => e.T === "Struct" && e.mut ? this.unId(e) : null);
+      if (x.vistaDe && n <= 30) d.vista = { padre: this.unId(x.vistaDe.p), i: x.vistaDe.i, pos: x.vistaDe.pos.map(k => k + 1) };
       return d;
     }
     if (x.T === "Tuple" && prof < 4 && x.a.length <= 30) return { t: V.tipo(x), tupla: true, el: x.a.map(e => ({ v: this.describe(e, prof + 1) })) };
@@ -778,8 +782,9 @@ class Programa {
             if (V.esEscalar(r) || !is.every(i => i.T === "Colon" || i.T === "Int64" || i.T === "UnitRange")) return { T: "VistaRara", r };
             return { ...r, vistaTxt: "view(::" + V.tipo(x) + ", " + is.map(i => i.T === "Colon" ? ":" : V.repr(i)).join(", ") + ")" };
           }
-          this.prim.difundeAsignacion(this.valor(izq, sc), v);
-          return v;
+          const destino = this.valor(izq, sc);
+          this.prim.difundeAsignacion(destino, v);
+          return destino.vistaDe ? destino : v;          // fila .+= 100 escribe la vista, no un vector nuevo
         }
         if (izq.type !== "identifier") {
           const v = this.prim.binaria(op, this.valor(izq, sc), this.valor(der, sc));
@@ -1041,6 +1046,7 @@ class Programa {
       if (!c.isNamed || c.type === "line_comment") continue;
       if (c.type === "named_argument") { const [k, v] = hijos(c); kw.set(k.text, this.valor(v, sc)); }
       else if (c.type === "splat_expression") throw new NoSoportado("los argumentos con ...");
+      else if (c.type === "operator" && c.text === ":") args.push({ T: "Colon" });         // view(A, :, 2)
       else args.push(this.valor(c, sc));
     }
     return [args, kw];
@@ -1079,6 +1085,7 @@ class Programa {
     }
     const f = this.valor(fn, sc);
     const [args, kw] = this.argumentos(lista, sc);
+    if (args.some(a => a.T === "Colon") && !(f.T === "Primitiva" && f.nombre === "view" && !difundir)) throw new NoSoportado("un : suelto como argumento");
     if (difundir) return this.prim.difunde(f, args, kw);
     return this.aplica(f, args, kw);
   }
@@ -1398,6 +1405,12 @@ class Programa {
       if (!f || !f.macro) throw new NoSoportado("@" + nombre + " de la macro @" + m + ": el laboratorio solo expande las macros que define el programa");
       return this.expandeMacro(args[0], sc, args.slice(1));
     }
+    if (nombre === "view") {           // @view v[2:4]: una vista de esas casillas
+      if (args.length !== 1 || args[0].type !== "index_expression") throw new NoSoportado("@view de algo que no es un índice, v[…]");
+      const [obj, ind] = hijos(args[0]), x = this.valor(obj, sc);
+      return this.prim.subvista(x, this.indices(x, ind, sc));
+    }
+    if (nombre === "views") throw new NoSoportado("la macro @views: cambia por vistas todos los trozos de un bloque, y el laboratorio aún no lo hace. Escribe @view en cada trozo");
     if (nombre === "eval") {
       if (args.length !== 1) throw new NoSoportado("@eval con varios argumentos");
       return this.evalua(this.aExpr(args[0], sc, true), null, true);

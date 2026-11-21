@@ -46,6 +46,7 @@ project:
         - file: capitulos/18-despacho-multiple.md
         - file: capitulos/19-rendimiento.md
         - file: capitulos/20-metaprogramacion.md
+        - file: capitulos/21-memoria.md
 site:
   template: book-theme
   options:
