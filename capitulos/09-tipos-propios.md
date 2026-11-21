@@ -260,7 +260,7 @@ En Python y en R, el método se elige por un solo objeto; en Julia, por todos lo
 
 ## La grieta
 
-Un vector de `Alumna` guarda toda la clase, pero cada pregunta exige un bucle o una comprensión: la media de los de segundo, las cinco mejores notas, cuántas aprueban por curso. Y los datos de verdad no se escriben a mano: llegan en una hoja de cálculo o en un archivo CSV. Hace falta una tabla con columnas con nombre, que se pueda filtrar, ordenar y agrupar: un *DataFrame*, en *Tablas de datos*.
+Un vector de `Alumna` guarda toda la clase, pero cada pregunta exige un bucle o una comprensión: la media de los de segundo, las cinco mejores notas, cuántas aprueban por curso. Y los datos de verdad no se escriben a mano: llegan en una hoja de cálculo o en un archivo CSV. Hace falta una tabla con columnas con nombre, que se pueda filtrar, ordenar y agrupar: un *DataFrame*, en [Tablas de datos](10-tablas.md).
 
 ## Ejercicios
 

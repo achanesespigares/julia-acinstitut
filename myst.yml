@@ -31,6 +31,7 @@ project:
         - file: capitulos/07-tuplas-diccionarios.md
         - file: capitulos/08-matrices.md
         - file: capitulos/09-tipos-propios.md
+        - file: capitulos/10-tablas.md
 site:
   template: book-theme
   options:

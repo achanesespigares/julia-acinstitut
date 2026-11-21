@@ -73,6 +73,14 @@ class Programa {
     if (x.T === "Funcion") return { t: "function", r: this.firma(x.nombre), m: x.nmetodos() };
     if (x.T === "Primitiva") return { t: "function", r: x.nombre, m: 1 };
     if (V.esEscalar(x)) return { t: V.tipo(x), e: true, v: [V.repr(x)] };
+    if (x.T === "DataFrame") {          // como trazar.jl: la tabla, sus columnas y la identidad de cada una
+      const n = x.cols.length ? V.largo(x.cols[0]) : 0;
+      if (n > 30 || x.cols.length > 12) throw new NoSoportado("dibujar una tabla de más de 30 filas o 12 columnas");
+      const id = this.unId(x);
+      return { t: "DataFrame", df: true, id, cols: [...x.nombres], tipos: x.cols.map(c => V.eltipo(c)), cid: x.cols.map(c => this.unId(c)), v: x.cols.map(c => V.elementos(c).map(e => V.repr(e))) };
+    }
+    if (x.T === "FilaDF") return { t: V.tipo(x), r: this.prim.muestra(x) };
+    if (x.T === "GrupoDF") throw new NoSoportado("guardar un groupby en una variable: úsalo dentro de combine(…)");
     if (x.vistaTxt || x.T === "VistaRara") throw new NoSoportado("guardar una vista (view) en una variable");
     if (MX.esMatriz(x) && V.largo(x) > 400) return { t: V.tipo(x), r: MX.muestraM(x, true) };
     if (MX.esMatriz(x) && V.largo(x) <= 400) {
@@ -188,6 +196,9 @@ class Programa {
     if (this.glob.has(nombre)) return this.glob.get(nombre);
     if (nombre in TIPOS) return TIPOS[nombre];
     if (this.prim.tiene(nombre)) return this.prim.funcion(nombre);
+    // un nombre de un paquete que el programa no ha cargado: Julia da una pista (los paquetes están cargados en trazar.jl)
+    for (const [p, t] of Object.entries(this.prim.paquetes)) if (nombre in t && typeof t[nombre] === "function")
+      throw new ErrorJulia("UndefVarError: `" + nombre + "` not defined in `Main`\nSuggestion: check for spelling errors or missing imports.\nHint: a global variable of this name also exists in " + p + ".");
     if (CONOCIDAS.has(nombre)) throw new NoSoportado("la función " + nombre + "()");
     throw new ErrorJulia("UndefVarError: `" + nombre + "` not defined in `Main`\nSuggestion: check for spelling errors or missing imports.");
   }
@@ -252,7 +263,16 @@ class Programa {
         this.sale(v);
         throw new Retorno(v);
       }
-      case "using_statement": case "import_statement": throw new NoSoportado("cargar paquetes (using)");
+      case "using_statement": {       // using DataFrames, Statistics: los dos paquetes que el laboratorio conoce
+        if (nivel !== 0) throw new NoSoportado("using dentro de un bloque");
+        const ps = hijos(n);
+        for (const p of ps) if (p.type !== "identifier" || !this.prim.paquetes[p.text]) throw new NoSoportado("cargar el paquete " + p.text + ": el laboratorio solo conoce DataFrames y Statistics");
+        this.va(l);
+        for (const p of ps) this.prim.carga(p.text);
+        this.paso(l, sc);
+        return NADA;
+      }
+      case "import_statement": throw new NoSoportado("import");
       case "struct_definition": case "abstract_definition": {
         if (nivel !== 0) throw new NoSoportado("definir un tipo dentro de un bloque");
         this.va(l);
@@ -471,6 +491,11 @@ class Programa {
         return this.busca(n.text, sc);
       }
       case "parenthesized_expression": return this.valor(hijos(n)[0], sc);
+      case "quote_expression": {        // :nota
+        const [c] = hijos(n);
+        if (!c || c.type !== "identifier") throw new NoSoportado("esta expresión con :");
+        return { T: "Symbol", v: c.text };
+      }
       case "assignment": return this.asignacion(n, sc);
       case "compound_assignment_expression": {
         if (opDe(n) === ".=") {         // x .= v, v[filtro] .= 5: se cambian las casillas, el vector es el mismo
@@ -535,6 +560,7 @@ class Programa {
       case "field_expression": {
         const [obj, campo] = hijos(n), x = this.valor(obj, sc), c = campo.text;
         if (x.T === "Struct") return this.prim.leeCampo(x, c);
+        if (x.T === "DataFrame" || x.T === "FilaDF") return this.prim.leeColumna(x, c);
         if (x.T === "NamedTuple") {
           const i = x.nombres.indexOf(c);
           if (i < 0) throw new ErrorJulia("FieldError: type NamedTuple has no field `" + c + "`, available fields: " + x.nombres.map(m => "`" + m + "`").join(", "));
@@ -595,6 +621,7 @@ class Programa {
     }
     if (izq.type === "field_expression") {      // f.faltas = 2: solo en un mutable struct
       const [obj, campo] = hijos(izq), x = this.valor(obj, sc);
+      if (x.T === "DataFrame" || x.T === "FilaDF") { this.prim.ponColumna(x, campo.text, v); return; }
       if (x.T !== "Struct") throw new NoSoportado("cambiar el campo de un " + V.tipo(x));
       this.prim.ponCampo(x, campo.text, v);
       return;
@@ -626,8 +653,9 @@ class Programa {
     const viejo = this.fin;
     try {
       const partes = partesIndice(ind);
-      const uno = p => p.type === "operator" && p.text === ":" ? { T: "Colon" } : this.valor(p, sc);
+      const uno = p => p.type === "operator" && p.text === ":" ? { T: "Colon" } : p.type === "operator" && p.text === "!" ? { T: "Bang" } : this.valor(p, sc);
       if (partes.length === 2) {
+        if (x.T === "DataFrame") { const r = []; partes.forEach((p, k) => { this.fin = k === 0 ? (x.cols.length ? V.largo(x.cols[0]) : 0) : undefined; r.push(uno(p)); }); return { T: "Indices2", a: r }; }
         if (!MX.esMatriz(x)) throw new NoSoportado("dos índices en un " + V.tipo(x));
         const ds = MX.dims(x), r = [];
         partes.forEach((p, k) => { this.fin = ds[k]; r.push(uno(p)); });

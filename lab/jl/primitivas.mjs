@@ -8,6 +8,7 @@ import * as TX from "./textos.mjs";
 import * as DC from "./dict.mjs";
 import * as MX from "./matrices.mjs";
 import * as TP from "./tipos.mjs";
+import * as TB from "./tablas.mjs";
 import { ErrorJulia, NoSoportado, I, F, B, S, Ch, NADA, FALTA, errorMetodo, aNum, tipo, repr } from "./valores.mjs";
 
 const T = nombre => ({ T: "Tipo", nombre });
@@ -350,6 +351,8 @@ export function crearPrimitivas(prog) {
   P.ultimoIndice = s => TX.ultimoIndice(s.v);
   const fueraDeLimites = (x, ind) => new ErrorJulia("BoundsError: attempt to access " + (x.T === "Tuple" ? tipo(x) : x.T === "String" ? TX.ncodeunits(x.v) + "-codeunit " + tipo(x) : V.largo(x) + "-element " + tipo(x)) + " at index [" + ind + "]");
   P.indexa = (x, i) => {
+    if (i.T === "Indices2" && x.T === "DataFrame") return P.indexaDF(x, ...i.a);
+    if (x.T === "DataFrame") throw new NoSoportado("una tabla con un solo índice: escribe df[!, :columna] o df[fila, :columna]");
     if (i.T === "Indices2") return P.indexa2(x, ...i.a);
     if (i.T === "Colon" && V.esVector(x) && !V.esRango(x)) return x.T === "BitVector" ? V.bitvec([...x.a]) : V.vec(x.el, [...x.a]);
     if (x.T === "String") return TX.indexa(x, i);
@@ -382,6 +385,7 @@ export function crearPrimitivas(prog) {
     throw new ErrorJulia("ArgumentError: invalid index: " + repr(i) + " of type " + tipo(i));
   };
   P.ponIndice = (x, i, v, punto = false) => {
+    if (i.T === "Indices2" && x.T === "DataFrame") { P.ponDF(x, ...i.a, v, punto); return; }
     if (i.T === "Indices2") { P.ponIndice2(x, ...i.a, v, punto); return; }
     if (i.T === "Colon" && (x.T === "Vector" || x.T === "BitVector")) i = V.rangoEnteros(1n, null, BigInt(x.a.length));
     if (x.T === "Dict") { if (punto) throw new NoSoportado("d[k] .= v en un Dict"); P.ponDict(x, i, v); return; }
@@ -707,10 +711,15 @@ export function crearPrimitivas(prog) {
   DC.funcionesDeDict(fn, P, prog);
   MX.operacionesDeMatrices(P, fn, prog);
   TP.tiposPropios(P, fn);
+  TB.funcionesDeTablas(P, fn, prog);
   const tabla = new Map(Object.entries(fn).map(([k, f]) => [k, { T: "Primitiva", nombre: k, f }]));
   const constantes = { π: V.PI, pi: V.PI, ℯ: V.E, Inf: F(Infinity), NaN: F(NaN), nothing: NADA, missing: FALTA, true: B(true), false: B(false) };
-  P.tiene = n => tabla.has(n) || n in constantes;
-  P.funcion = n => n in constantes ? constantes[n] : tabla.get(n);
+  // los paquetes que el programa ha cargado con using (DataFrames, Statistics)
+  const cargados = new Map();
+  P.carga = nombre => { if (!P.paquetes[nombre]) return false; cargados.set(nombre, new Map(Object.entries(P.paquetes[nombre]).map(([k, f]) => [k, { T: "Primitiva", nombre: k, f }]))); return true; };
+  const dePaquete = n => { for (const t of cargados.values()) if (t.has(n)) return t.get(n); return null; };
+  P.tiene = n => tabla.has(n) || n in constantes || !!dePaquete(n);
+  P.funcion = n => n in constantes ? constantes[n] : tabla.get(n) || dePaquete(n);
   return P;
 }
 

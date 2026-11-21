@@ -124,6 +124,14 @@ pre.tz-codigo{ margin:0; font:400 14px/1.85 var(--mono); overflow-x:auto; backgr
 .tz .elem.cambia > .elem-cab .nom{ color:var(--acento); }
 .tz .elem .lista{ border-left-color:var(--filete); }
 .tz .rejilla{ overflow-x:auto; padding-bottom:2px; }
+.tz table.tdf{ border-collapse:collapse; font:500 12.5px/1.25 var(--mono); background:#fff; border:2px solid var(--tinta); }   /* un DataFrame */
+.tz table.tdf th{ font:600 12px/1.2 var(--mono); text-align:left; padding:5px 7px 1px; color:var(--tinta); white-space:nowrap; }
+.tz table.tdf th.tipo{ font:500 9.5px/1.2 var(--titulo); letter-spacing:.04em; color:var(--banda); padding:0 7px 5px; border-bottom:2px solid var(--tinta); }
+.tz table.tdf th.fila{ color:var(--banda); font-weight:500; text-align:right; padding:4px 7px; border-right:1px solid var(--filete); }
+.tz table.tdf td{ padding:3px 7px; border-top:1px solid var(--fila); white-space:pre; }
+.tz table.tdf td.num{ text-align:right; }
+.tz table.tdf td.cambia, .tz table.tdf .nueva{ background:var(--suave); }
+.tz table.tdf td.cambia{ color:var(--acento); font-weight:700; }
 .tz table.mat{ border-collapse:collapse; font:600 15px/1 var(--mono); }
 .tz table.mat td{ border:2px solid var(--tinta); min-width:46px; height:36px; padding:0 7px; text-align:center; background:#fff; transition:background .25s; }
 .tz table.mat th{ font:500 11.5px/1 var(--mono); color:var(--banda); padding:3px 6px; white-space:nowrap; }
@@ -270,6 +278,7 @@ const EJEMPLOS = [
   { nombre: "Un diccionario", codigo: "notas = Dict(\"Ana\" => 9.0, \"Biel\" => 4.0)\nnotas[\"Carla\"] = 7.5\nnotas[\"Biel\"] = 5.0\nfor (nombre, nota) in notas\n    println(nombre, \": \", nota)\nend\nnotas[\"Eva\"]" },
   { nombre: "Una matriz", codigo: "notas = [9.0 6.5 7.0; 7.5 3.0 8.5; 10.0 8.0 9.5]\nbiel = notas[2, 3]\nnotas[:, 3] .+= 0.5\npor_examen = sum(notas; dims=1)\npesos = [0.25, 0.25, 0.5]\nfinales = notas * pesos\nv = vec(notas)\nnotas[4, 1]" },
   { nombre: "Un tipo propio", codigo: "mutable struct Ficha\n    nombre::String\n    faltas::Int\nend\nbiel = Ficha(\"Biel\", 0)\nbiel.faltas += 1\ncopia = biel\ncopia.faltas = 5\nbiel\nresumen(f::Ficha) = f.nombre * \": \" * string(f.faltas) * \" faltas\"\nr = resumen(biel)\nresumen(\"Biel\")" },
+  { nombre: "Una tabla de datos", codigo: "using DataFrames, Statistics\nclase = DataFrame(nombre = [\"Ana\", \"Biel\", \"Carla\", \"Dani\"],\n                  curso = [2, 1, 2, 1],\n                  nota = [9.0, 4.5, 7.5, 6.0])\naprobados = clase[clase.nota .>= 5, :]\nranking = sort(clase, :nota, rev = true)\npor_curso = combine(groupby(clase, :curso), :nota => mean => :media)\nclase.aprobada = clase.nota .>= 5\nclase\nclase.edad" },
   { nombre: "Un bucle que suma", codigo: "notas = [9.0, 6.5, 4.0, 7.5]\ntotal = 0.0\nfor i in eachindex(notas)\n    if notas[i] >= 5\n        total += notas[i]\n    end\nend\ntotal", tabla: "i, notas[i], total" },
   { nombre: "Una función", codigo: "function media(v)\n    s = 0.0\n    for x in v\n        s += x\n    end\n    return s / length(v)\nend\n\nm = media([2, 4, 9])\nprintln(\"La media es \", m)" },
   { nombre: "b = a no copia", codigo: "a = [1, 2, 3]\nb = a\nb[1] = 100\na\nc = copy(a)\nc[1] = 0\na" },
@@ -398,7 +407,7 @@ function dibujaTraza(el, C, D) {
   q(".tz-nota").textContent = porLinea ? "Cada fila es el estado justo después de ejecutar esa línea." : "La fila de cada vuelta se escribe al terminarla.";
 
   const igual = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-  const longitud = v => v && v.v ? (v.nv || v.v.length) : 0;
+  const longitud = v => v && v.df ? (v.v.length ? v.v[0].length : 0) : v && v.v ? (v.nv || v.v.length) : 0;
   // las variables de un paso, en el orden en que aparecieron
   const nombres = (est, orden) => (orden || Object.keys(est)).filter(n => est[n] && !ocultas.has(n));
   const muestra = v => !v ? "" : v.struct ? v.t + "(" + v.el.map(e => muestra(e.v)).join(", ") + ")" : v.e ? v.v[0] : v.rango ? v.rango : v.v ? "[" + v.v.join(", ") + (v.nv ? ", …" : "") + "]" : v.t === "function" ? v.r : v.r || v.t;
@@ -406,6 +415,7 @@ function dibujaTraza(el, C, D) {
 
   function quees(v) {
     if (v.t === "function") return "una función: guarda sus instrucciones, que no se ejecutan hasta que alguien la llame";
+    if (v.df) return "una tabla (" + code("DataFrame") + ") de " + longitud(v) + (longitud(v) === 1 ? " fila" : " filas") + " y " + v.cols.length + (v.cols.length === 1 ? " columna" : " columnas") + (v.cols.length ? ": " + v.cols.map(code).join(", ") : "");
     if (v.t === "Nothing") return "que vale " + code("nothing") + ": el valor de Julia para decir «aquí no hay nada». Su tipo es " + code("Nothing");
     if (v.t === "Missing") return "que vale " + code("missing") + ": un dato que falta. Su tipo es " + code("Missing");
     if (v.e && esTipoTexto(v.t) && C.letras) {
@@ -424,6 +434,7 @@ function dibujaTraza(el, C, D) {
     if (v.v && !longitud(v)) return "un vector vacío (" + code(v.t) + ")";
     if (v.v && v.t === "BitVector") return "un vector de " + code("true") + " y " + code("false") + ", " + longitud(v) + (longitud(v) === 1 ? " casilla" : " casillas") + " (" + code(v.t) + "): una <b>máscara</b>";
     if (v.v) return "un vector de " + longitud(v).toLocaleString("es-ES") + (longitud(v) === 1 ? " elemento" : " elementos") + " (" + code(v.t) + ")" + (v.nv ? ". Aquí se ven los " + v.v.length + " primeros" : "");
+    if (v.df && false) return "una tabla (" + code("DataFrame") + ") de " + longitud(v) + (longitud(v) === 1 ? " fila" : " filas") + " y " + v.cols.length + (v.cols.length === 1 ? " columna" : " columnas") + (v.cols.length ? ": " + v.cols.map(code).join(", ") : "");
     if (v.struct) return "un valor del tipo propio " + code(v.t) + ", con " + v.el.length + (v.el.length === 1 ? " campo" : " campos") + ": " + v.el.map(e => code(e.nombre)).join(", ") + (v.mutable ? ". Es <b>mutable</b>: sus campos se pueden cambiar" : "");
     if (v.t === "DataType") return "un tipo, " + code(v.r) + ": no es un dato, sino el molde con el que se hacen los datos de ese tipo";
     if (v.tupla && v.el.length && v.el.every(e => e.nombre)) return "una tupla con nombre, con " + v.el.length + (v.el.length === 1 ? " campo" : " campos") + ": " + v.el.map(e => code(e.nombre)).join(", ");
@@ -461,6 +472,11 @@ function dibujaTraza(el, C, D) {
         : "El bucle termina: el programa sigue después de él.") + desap;
     }
     { const lt = (L[p.linea - 1] || "").trim();
+      const us = lt.match(/^using\s+(.+)$/);
+      if (us) {
+        const ps = us[1].split(",").map(x => x.trim()), que = { DataFrames: "DataFrame, groupby, combine, nrow…", Statistics: "mean, median…" };
+        return (ps.length > 1 ? "Se cargan los paquetes " + ps.map(code).join(" y ") : "Se carga el paquete " + code(ps[0])) + ". Desde esta línea existen sus funciones (" + ps.map(x => que[x] || "").filter(Boolean).join("; ") + "), que Julia no trae de serie.";
+      }
       if (/^break\b/.test(lt)) return "Se ejecuta <code>break</code>: Julia sale del bucle en este mismo momento, sin terminar la vuelta.";
       if (/^continue\b/.test(lt)) return "Se ejecuta <code>continue</code>: Julia deja esta vuelta a medias y salta a la siguiente."; }
     if (p.tipo === "llamada") {
@@ -520,6 +536,8 @@ function dibujaTraza(el, C, D) {
       const trozo = ((L[p.linea - 1] || "").match(/^\s*\w+\s*=\s*(\w+)\[(.+)\]\s*$/) || []);
       if (!a && trozo[1] && b.v && !b.e && trozo[1] !== n && ahora[trozo[1]] && ahora[trozo[1]].v) {
         const k = longitud(b);
+        if (!b.df && ahora[trozo[1]].df) { frases.push("Se crea " + code(n) + ": una <b>copia</b> de lo que elige " + code("[" + trozo[2] + "]") + " de la tabla " + code(trozo[1]) + ", " + quees(b) + ". Es un vector nuevo: cambiarlo no cambia la tabla."); continue; }
+        if (b.df) { frases.push("Se crea " + code(n) + ": una tabla <b>nueva</b> con lo que elige " + code("[" + trozo[2] + "]") + " de " + code(trozo[1]) + ", de " + longitud(b) + (longitud(b) === 1 ? " fila" : " filas") + " y " + b.cols.length + (b.cols.length === 1 ? " columna" : " columnas") + "."); continue; }
         if (b.d) { frases.push("Se crea " + code(n) + ": una matriz <b>nueva</b> con las casillas de " + code(trozo[1]) + " que elige " + code("[" + trozo[2] + "]") + ", de " + b.d[0] + " × " + b.d[1] + " (" + code(b.t) + ")."); continue; }
         frases.push("Se crea " + code(n) + ": un vector <b>nuevo</b> con las casillas de " + code(trozo[1]) + " que elige " + code("[" + trozo[2] + "]") + (k ? ", " + k + (k === 1 ? " elemento" : " elementos") : ", ninguna: está vacío") + " (" + code(b.t) + ")."); continue;
       }
@@ -540,6 +558,19 @@ function dibujaTraza(el, C, D) {
       if (a.t === "function" && b.t === "function" && b.m > a.m) {       // un método más para la misma función
         const sig = ((L[p.linea - 1] || "").match(/^\s*(?:function\s+)?(\w+!?\(.*?\))/) || [])[1];
         frases.push("Se añade a " + code(n) + " un método nuevo" + (sig ? ", " + code(sig) : "") + ": ahora la función tiene " + b.m + " métodos. Es la misma función, y en cada llamada Julia elegirá el método según el tipo de los argumentos."); continue;
+      }
+      if (a.df && b.df && a.id === b.id && !igual(a, b)) {           // una tabla que cambia: columnas nuevas, casillas
+        const fr = [], nf = longitud(b);
+        b.cols.forEach((c, k) => {
+          const j = a.cols.indexOf(c);
+          if (j < 0) { fr.push("Se añade a " + code(n) + " la columna " + code(c) + " (" + code(b.tipos[k]) + ")" + (nf ? ": " + esc(b.v[k].join(", ")) : "") + "."); return; }
+          const camb = b.v[k].map((x, i) => x !== a.v[j][i] ? i : -1).filter(i => i >= 0);
+          if (camb.length && camb.length <= 3) camb.forEach(i => fr.push("Cambia " + code(n + "[" + (i + 1) + ", :" + c + "]") + ": valía " + esc(a.v[j][i]) + " y ahora vale " + esc(b.v[k][i]) + "."));
+          else if (camb.length) fr.push("Cambia la columna " + code(c) + " de " + code(n) + ": ahora vale " + esc(b.v[k].join(", ")) + ".");
+          else if (a.cid[j] !== b.cid[k]) fr.push("La columna " + code(c) + " de " + code(n) + " es ahora otro vector, con los mismos valores.");
+        });
+        a.cols.forEach(c => { if (!b.cols.includes(c)) fr.push("Se quita la columna " + code(c) + " de " + code(n) + "."); });
+        frases.push(...(fr.length ? fr : [code(n) + " cambia."])); hechos.push(n); continue;
       }
       if (a.struct && b.struct && a.t === b.t && !igual(a, b)) {       // un objeto que cambia: campo a campo
         const fr = b.el.map((e, i) => igual(e.v, a.el[i].v) ? null : e.v.e && a.el[i].v.e ? "Cambia " + code(n + "." + e.nombre) + ": valía " + esc(a.el[i].v.v[0]) + " y ahora vale " + esc(e.v.v[0]) + "."
@@ -593,6 +624,8 @@ function dibujaTraza(el, C, D) {
     // un vector que es también el campo de un objeto: e.notas y notas son el mismo vector
     for (const n of hechos) {
       const b = ahora[n]; if (!b || !b.v || !b.id) continue;
+      const tab = nombres(ahora, orden).find(m => ahora[m].df && ahora[m].cid.includes(b.id) && m !== n);
+      if (tab && !b.df) { frases.push(code(n) + " y " + code(tab + "." + ahora[tab].cols[ahora[tab].cid.indexOf(b.id)]) + " son el <b>mismo vector</b>: una columna de una tabla es un vector, y " + code(tab + "." + ahora[tab].cols[ahora[tab].cid.indexOf(b.id)]) + " da ese mismo vector, sin copiarlo."); break; }
       const due = nombres(ahora, orden).find(m => ahora[m].struct && ahora[m].el.some(e => e.v.id === b.id));
       if (due) { const c = ahora[due].el.find(e => e.v.id === b.id).nombre; frases.push(code(n) + " y " + code(due + "." + c) + " son el <b>mismo vector</b>: al construir " + code(due) + ", Julia guardó en el campo el vector, sin copiarlo."); break; }
     }
@@ -613,8 +646,9 @@ function dibujaTraza(el, C, D) {
       const nueva = p.salida.slice(prev.salida.length).replace(/\n$/, "").split("\n");
       const linea = (L[p.linea - 1] || "").trim();
       const muestra1 = nueva.length === 1 ? code(nueva[0]) : "varias líneas";
+      const esTabla = /^(\d+×\d+ DataFrame|DataFrameRow)$/.test(nueva[0]);
       const esVector = nueva.length > 1 && /^\d+-element/.test(nueva[0]), esMatriz = nueva.length > 1 && /^\d+×\d+ /.test(nueva[0]), esVista = / view\(/.test(nueva[0]);
-      const cola = esVista ? ": una <b>vista</b> (" + code("view") + ") de las casillas que han cambiado, con una cabecera que dice de dónde salen." :
+      const cola = esTabla ? (nueva.length > 1 ? ": " + (nueva[0] === "DataFrameRow" ? "una fila de la tabla" : "la tabla entera") + ", con una línea de título, los nombres y los tipos de las columnas, y una fila por línea con su número." : ": " + muestra1 + ".") : esVista ? ": una <b>vista</b> (" + code("view") + ") de las casillas que han cambiado, con una cabecera que dice de dónde salen." :
         esMatriz ? ": la matriz entera, con una línea de cabecera (filas × columnas y su tipo) y una fila de la matriz por línea." :
         esVector ? ": el vector entero, con una línea de cabecera (su tamaño y su tipo) y una casilla por línea." : ": " + muestra1 + ".";
       const bang = (linea.match(/^(\w+!)\(/) || [])[1];
@@ -651,6 +685,7 @@ function dibujaTraza(el, C, D) {
 
   function cabecera(v) {
     if (v.d) return '<span class="tipo">' + esc(v.t) + '</span><span class="lon">' + v.d.join(" × ") + " (filas × columnas)</span>";
+    if (v.df) return '<span class="tipo">DataFrame</span><span class="lon">' + longitud(v) + " × " + v.cols.length + " (filas × columnas)</span>";
     const lon = v.dict ? v.k.length + (v.k.length === 1 ? " pareja" : " parejas") : v.e || v.t === "function" ? (v.t === "function" && v.m > 1 ? v.m + " métodos" : "") : v.tupla ? v.el.length + (v.el.length && v.el.every(e => e.nombre) ? (v.el.length === 1 ? " campo" : " campos") : v.el.length === 1 ? " elemento" : " elementos") : v.v ? "longitud " + longitud(v).toLocaleString("es-ES") : "";
     return '<span class="tipo" title="' + esc(v.t) + '">' + esc(v.t === "function" ? "función" : corta(v.t)) + "</span>" + (lon ? '<span class="lon">' + lon + "</span>" : "") + (v.mutable ? '<span class="loc">mutable</span>' : "") + (v.local ? '<span class="loc">local</span>' : "");
   }
@@ -679,6 +714,7 @@ function dibujaTraza(el, C, D) {
   }
   function valor(v, a, op = {}) {
     if (v.dict) return tablaDict(v, a);
+    if (v.df) return tablaDF(v, a);
     if (v.e && C.letras && esTipoTexto(v.t) && v.v[0].length > 2 && [...sinComillas(v.v[0])].length <= 40) return filaLetras(v, a);
     if (v.e && C.letras && v.t === "Char") { const c = sinComillas(v.v[0]); return '<span class="escalar">' + esc(v.v[0]) + '</span><span class="codigo">código ' + (c.length ? c.codePointAt(0) : "") + "</span>"; }
     if (v.e) return '<span class="escalar">' + esc(v.v[0]) + "</span>";
@@ -692,6 +728,22 @@ function dibujaTraza(el, C, D) {
       return casillas(v, a, op) + (v.rango ? '<p class="rango">El rango ' + code(v.rango) + " no guarda las casillas: sabe dónde empieza, dónde acaba y de cuánto en cuánto va.</p>" : "");
     }
     return '<div class="otro">' + esc(v.r || v.t) + "</div>";
+  }
+  // Una tabla de datos: cada columna con su nombre y su tipo, y una fila por alumno, con su número
+  function tablaDF(v, a) {
+    const n = longitud(v), mismo = a && a.df && longitud(a) === n;
+    const ant = k => mismo ? a.cols.indexOf(v.cols[k]) : -1;
+    const num = t => /^(Int|Float|Bool|Rational)/.test(t);
+    let html = '<div class="rejilla"><table class="tdf"><thead><tr><th></th>' + v.cols.map((c, k) => '<th class="' + (a && a.df && ant(k) < 0 ? "nueva" : "") + '">' + esc(c) + "</th>").join("") +
+      '</tr><tr><th class="tipo"></th>' + v.tipos.map((t, k) => '<th class="tipo' + (a && a.df && ant(k) < 0 ? " nueva" : "") + '">' + esc(t) + "</th>").join("") + "</tr></thead><tbody>";
+    for (let i = 0; i < n; i++) {
+      html += '<tr><th class="fila">' + (i + 1) + "</th>" + v.cols.map((c, k) => {
+        const j = ant(k), cl = (num(v.tipos[k]) ? "num" : "") + (a && a.df ? (j < 0 ? " nueva" : a.v[j][i] !== v.v[k][i] ? " cambia" : "") : "");
+        return '<td class="' + cl.trim() + '">' + esc(v.tipos[k] === "String" ? sinComillas(v.v[k][i]) : v.v[k][i]) + "</td>";
+      }).join("") + "</tr>";
+    }
+    if (!n) html += '<tr><td colspan="' + (v.cols.length + 1) + '" style="color:var(--banda)">— sin filas —</td></tr>';
+    return html + "</tbody></table></div>";
   }
   // Una matriz: Julia, como R, guarda los valores por columnas
   function rejilla(v, a, celda) {
@@ -715,6 +767,7 @@ function dibujaTraza(el, C, D) {
     let html = "";
     const ns = nombres(est, orden);
     const comparte = n => est[n].id ? ns.filter(m => m !== n && est[m].id === est[n].id).map(esc)
+      .concat(ns.filter(m => est[m].df && m !== n).flatMap(m => est[m].cols.filter((c, k) => est[m].cid[k] === est[n].id).map(c => esc(m + "." + c))))
       .concat(ns.filter(m => est[m].struct).flatMap(m => est[m].el.filter(e => e.v.id === est[n].id).map(e => esc(m + "." + e.nombre))))
       .concat(fuera ? Object.keys(fuera.vars).filter(m => fuera.vars[m] && fuera.vars[m].id === est[n].id).map(m => esc(m) + " " + esc(fuera.donde)) : []) : [];
     const lista = conFoco && C.foco && ns.includes(C.foco) ? [C.foco].concat(ns.filter(n => n !== C.foco)) : ns;

@@ -43,7 +43,7 @@ function mcd(a, b) { while (b) [a, b] = [b, a % b]; return a; }
 export const LARGO_FLOAT = "StepRangeLen{Float64, Base.TwicePrecision{Float64}, Base.TwicePrecision{Float64}, Int64}";
 export function tipo(x) {
   switch (x.T) {
-    case "Vector": return x.el === "Bool" && x.bit ? "BitVector" : "Vector{" + x.el + "}";
+    case "Vector": if (x.tipoTxt) return x.tipoTxt; return x.el === "Bool" && x.bit ? "BitVector" : "Vector{" + x.el + "}";
     case "BitVector": return "BitVector";
     case "Rational": return "Rational{Int64}";
     case "Irrational": return "Irrational{:" + x.nombre + "}";
@@ -58,6 +58,9 @@ export function tipo(x) {
     case "Dict": return "Dict{" + x.K + ", " + x.V + "}";
     case "Matrix": return GANCHOS.tipoM(x);
     case "Struct": return x.tipo;
+    case "DataFrame": return "DataFrame";
+    case "FilaDF": return "DataFrameRow{DataFrame, DataFrames.Index}";
+    case "GrupoDF": return "GroupedDataFrame{DataFrame}";
     case "Claves": return x.que === "keys" ? "Base.KeySet{" + x.d.K + ", " + tipo(x.d) + "}" : "Base.ValueIterator{" + tipo(x.d) + "}";
     case "NamedTuple": return "@NamedTuple{" + x.nombres.map((n, i) => n + "::" + tipo(x.a[i])).join(", ") + "}";
     case "Iter": throw new NoSoportado("guardar o mostrar el resultado de " + x.nombre + "(): por ahora solo se puede recorrer con un for");
@@ -200,7 +203,8 @@ export function repr(x, dentro = false) {
     case "Tipo": return x.nombre;
     case "Pair": return repr(x.a, true) + " => " + repr(x.b, true);
     case "Matrix": return GANCHOS.reprM(x);
-    case "Struct": return x.tipo + "(" + x.a.map(e => repr(e)).join(", ") + ")";      // show de un tipo propio: Alumna("Ana", 2, 9.0)
+    case "Struct": return x.tipo + "(" + x.a.map(e => repr(e)).join(", ") + ")";
+    case "DataFrame": case "FilaDF": case "GrupoDF": return GANCHOS.muestraDF(x);      // show de un tipo propio: Alumna("Ana", 2, 9.0)
     case "Dict": {
       const es = x.t.entradas();
       const pref = es.length && implicito(x.K) && implicito(x.V) ? "Dict" : tipo(x);
@@ -270,6 +274,7 @@ export function muestra(x) {
   if (x.T === "Char") return caracterLargo(x.v);
   if (x.T === "Dict") return muestraDict(x);
   if (x.T === "Matrix") return GANCHOS.muestraM(x);
+  if (x.T === "DataFrame" || x.T === "FilaDF" || x.T === "GrupoDF") return GANCHOS.muestraDF(x);
   if (x.T === "Claves") return muestraClaves(x);
   if (x.T === "Vector" || x.T === "BitVector") {
     const n = x.a.length, t = tipo(x);

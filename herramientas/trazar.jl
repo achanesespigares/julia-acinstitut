@@ -21,6 +21,9 @@
 # Claves de "config": titulo, etiqueta, idea, foco, puntero, columnas, fila_en ("cada_linea" o
 # "fin_iteracion") y ocultar, como en el libro de R.
 using JSON, REPL
+# Las tablas de datos (capítulo 10): DataFrames se carga aquí para poder describir sus tablas, pero un
+# programa solo puede usarlo si escribe `using DataFrames`, como en el REPL
+using DataFrames
 
 const LIMITE = 2000
 
@@ -93,6 +96,14 @@ function describe(x, prof = 0)
     if x isa NamedTuple && prof < 4 && length(x) <= 30
         return Dict("t" => nombre_tipo(x), "tupla" => true,
                     "el" => [Dict("nombre" => string(k), "v" => describe(v, prof + 1)) for (k, v) in pairs(x)])
+    end
+    # una tabla de datos: sus columnas, cada una con su nombre, su tipo, sus valores y su identidad
+    # (una columna es un vector: clase.nota da ese mismo vector)
+    if x isa DataFrames.DataFrame && DataFrames.nrow(x) <= 30 && DataFrames.ncol(x) <= 12
+        return Dict{String,Any}("t" => "DataFrame", "df" => true, "id" => un_id(x), "cols" => names(x),
+                                "tipos" => [sin_main(string(eltype(c))) for c in DataFrames.eachcol(x)],
+                                "cid" => [un_id(c) for c in DataFrames.eachcol(x)],
+                                "v" => [[un_valor(e) for e in c] for c in DataFrames.eachcol(x)])
     end
     # un tipo propio (definido en el programa): una ficha con sus campos, como una tupla con nombre;
     # si es mutable, con su identidad, para ver cuándo dos nombres son el mismo objeto

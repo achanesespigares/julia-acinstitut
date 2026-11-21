@@ -1,0 +1,16 @@
+using DataFrames, Statistics
+clase = DataFrame(nombre = ["Ana", "Biel", "Carla", "Dani", "Eva", "Fran"], curso = [2, 1, 2, 1, 1, 2], nota = [9.0, 4.5, 7.5, 6.0, 8.0, 5.5])
+m = mean(clase.nota)
+md = median(clase.nota)
+por_curso = combine(groupby(clase, :curso), :nota => mean => :media, nrow => :alumnos)
+por_curso
+otro = combine(groupby(clase, :curso), :nota => maximum, :nota => minimum => :peor)
+letras = DataFrame(k = ["b", "a", "b", "c"], v = [1, 2, 3, 4])
+combine(groupby(letras, :k), :v => sum)
+combine(groupby(letras, :k), nrow)
+total = combine(clase, :nota => sum => :suma)
+dobla(x) = 2 * sum(x)
+combine(groupby(letras, :k), :v => dobla)
+combine(groupby(letras, :k), :v => (x -> length(x)))
+grande = DataFrame(c = [10, 1, 10], v = [1.0, 2.0, 3.0])
+combine(groupby(grande, :c), :v => sum)
