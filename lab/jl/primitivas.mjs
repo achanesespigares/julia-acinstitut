@@ -10,6 +10,7 @@ import * as MX from "./matrices.mjs";
 import * as TP from "./tipos.mjs";
 import * as TB from "./tablas.mjs";
 import * as AL from "./algebra.mjs";
+import * as GR from "./graficos.mjs";
 import { ErrorJulia, NoSoportado, I, F, B, S, Ch, NADA, FALTA, errorMetodo, aNum, tipo, repr } from "./valores.mjs";
 
 const T = nombre => ({ T: "Tipo", nombre });
@@ -22,7 +23,7 @@ export const TIPOS = {
 export const CONOCIDAS = new Set(("big BigInt BigFloat Float32 Int32 Int8 UInt8 UInt Complex complex im rand randn seed! Random mean median std var " +
   "Set lpad rpad " +
   "chomp reduce foldl foldr mapreduce accumulate cumsum cumprod diff unique sortperm argmax argmin extrema " +
-  "Matrix Array axes LinearAlgebra Statistics plot println_ " +
+  "Matrix Array axes LinearAlgebra Statistics println_ " +
   "struct mutable abstract typeof_ isa eltype convert promote sizeof summarysize objectid ismutable deepcopy view @view @views similar " +
   "ifelse iterate Iterators sum! maximum! push !== === try catch error throw rethrow DomainError ArgumentError " +
   "time @time @elapsed @btime sleep open read write readline readlines eachline isfile").split(" "));
@@ -687,6 +688,8 @@ export function crearPrimitivas(prog) {
     if (args.length === 2 && kw.has("length") && kw.size === 1) {
       const n = Number(kw.get("length").v);
       if ([a, b].every(esEnteroLike) && (Number(bigDe(b)) - Number(bigDe(a))) % (n - 1 || 1) === 0 && false) return null;
+      if (n === 1 && aNum(a) !== aNum(b)) throw new ErrorJulia("ArgumentError: range(" + V.decimal(aNum(a)) + ", stop=" + V.decimal(aNum(b)) + ", length=1): endpoints differ");
+      if (n < 2) throw new NoSoportado("range con length = " + n);
       return V.rangoLongitud(aNum(a), aNum(b), n);
     }
     if (args.length === 2 && kw.has("step") && kw.size === 1) return P.rango(a, kw.get("step"), b);
@@ -714,6 +717,7 @@ export function crearPrimitivas(prog) {
   TP.tiposPropios(P, fn);
   TB.funcionesDeTablas(P, fn, prog);
   AL.algebraLineal(P, fn);
+  GR.graficos(P, fn, prog);
   const tabla = new Map(Object.entries(fn).map(([k, f]) => [k, { T: "Primitiva", nombre: k, f }]));
   const constantes = { π: V.PI, pi: V.PI, ℯ: V.E, Inf: F(Infinity), NaN: F(NaN), nothing: NADA, missing: FALTA, true: B(true), false: B(false) };
   // los paquetes que el programa ha cargado con using (DataFrames, Statistics)

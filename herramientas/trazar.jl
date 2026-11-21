@@ -24,6 +24,19 @@ using JSON, REPL
 # Las tablas de datos (capítulo 10): DataFrames se carga aquí para poder describir sus tablas, pero un
 # programa solo puede usarlo si escribe `using DataFrames`, como en el REPL
 using DataFrames
+# Los gráficos (capítulo 12): Plots, con GR y sin ventana. Se carga la primera vez que un programa escribe
+# `using Plots`, y no antes: Plots carga otros paquetes (SparseArrays, StatsBase) que cambian algunos mensajes
+# de error de Julia, y un programa que no usa Plots debe dar los mensajes de un REPL recién abierto. Por eso
+# conformidad.jl deja para el final los programas que usan Plots.
+ENV["GKSwstype"] = "100"
+const PLOTS = Ref{Any}(nothing)
+function carga_plots()
+    PLOTS[] === nothing || return
+    Core.eval(Main, :(using Plots))
+    PLOTS[] = Base.invokelatest(getfield, Main, :Plots)
+    Core.eval(Main, :(Base.display(p::Plots.Plot) = registra(p)))
+end
+es_plot(x) = PLOTS[] !== nothing && Base.invokelatest(isa, x, PLOTS[].Plot)
 
 const LIMITE = 2000
 
@@ -43,6 +56,10 @@ mutable struct Estado
     salida::String                 # el archivo donde va lo que el programa escribe
     firmas::Dict{Symbol,Vector{String}}
     ids::Dict{UInt,Int}            # un número por cada vector distinto: dos nombres con el mismo número son el mismo vector
+    grafico::Any                   # el gráfico que el programa acaba de mostrar (va en el paso siguiente)
+    svg::Union{Nothing,String}     # en el libro, dónde se guarda como SVG cada gráfico que se muestra
+    nsvg::Int
+    svgfile::Union{Nothing,String}
 end
 const T = Ref{Estado}()
 
@@ -66,7 +83,54 @@ function firma(n::Symbol)
     isempty(fs) ? string(n) : join(fs, "\n")
 end
 
+# ── Los gráficos (capítulo 12) ───────────────────────────────────────────
+# Un gráfico se describe con lo que Plots ha calculado para dibujarlo: cada serie (su tipo, su etiqueta, sus
+# colores y sus puntos) y cada eje (su título, sus límites y sus marcas con sus etiquetas). El laboratorio
+# calcula lo mismo y lo dibuja; el libro enseña además el SVG que hace Plots.
+color_hex(c) = (C = PLOTS[].Colors; "#" * Base.invokelatest(C.hex, Base.invokelatest(C.RGB, c)))
+num(x) = un_valor(x isa Integer || x isa AbstractFloat ? x : Float64(x))
+function describe_eje(sp, letra)
+    ax = sp[Symbol(letra, :axis)]
+    lim = Base.invokelatest(PLOTS[].axis_limits, sp, letra)
+    tk = Base.invokelatest(PLOTS[].get_ticks, sp, ax)
+    d = Dict{String,Any}("guia" => string(ax[:guide]), "lim" => [un_valor(Float64(lim[1])), un_valor(Float64(lim[2]))])
+    if tk isa Tuple && length(tk) == 2
+        d["marcas"] = [un_valor(Float64(t)) for t in tk[1]]
+        d["etiquetas"] = [string(e) for e in tk[2]]
+    else
+        d["marcas"] = String[]; d["etiquetas"] = String[]
+    end
+    d
+end
+function describe_serie(s)
+    Dict{String,Any}("tipo" => string(s[:seriestype]), "etiqueta" => string(s[:label]),
+        "color" => color_hex(s[:linecolor]), "ancho" => num(s[:linewidth]), "estilo" => string(s[:linestyle]),
+        "marca" => string(s[:markershape]), "tam" => num(s[:markersize]),
+        "relleno" => color_hex(s[:markercolor]), "borde" => color_hex(s[:markerstrokecolor]),
+        "x" => [un_valor(v) for v in s[:x]], "y" => [un_valor(v) for v in s[:y]])
+end
+describe_grafico(p) = Dict{String,Any}("sp" => [Dict{String,Any}("titulo" => string(sp[:title]),
+    "leyenda" => string(sp[:legend_position]), "x" => describe_eje(sp, :x), "y" => describe_eje(sp, :y),
+    "series" => [describe_serie(s) for s in sp.series_list]) for sp in p.subplots])
+# Mostrar un gráfico (escribir p, o una línea que acaba en plot!(…)) no escribe nada en la consola: lo
+# dibuja. El paso siguiente lleva el gráfico, y en el libro el SVG que ha hecho Plots
+function registra(p)
+    st = T[]
+    st.grafico = describe_grafico(p)
+    if st.svg !== nothing
+        st.nsvg += 1
+        f = st.svg * "-" * string(st.nsvg) * ".svg"
+        mkpath(dirname(f))
+        Base.invokelatest(PLOTS[].savefig, p, f)
+        st.svgfile = f
+    end
+    nothing
+end
+
 function describe(x, prof = 0)
+    if es_plot(x)
+        return Dict{String,Any}("t" => nombre_tipo(x), "plot" => describe_grafico(x), "id" => un_id(x))
+    end
     if x isa Function
         n = nameof(x)
         nm = length(methods(x))
@@ -191,6 +255,11 @@ function anota(paso::Dict)
     isempty(st.pila) || (paso["marcos"] = foto_marcos())
     paso["salida"] = lee_pantalla()
     paso["nfilas"] = length(st.filas)
+    if st.grafico !== nothing
+        paso["grafico"] = st.grafico
+        st.svgfile === nothing || (paso["svg"] = st.svgfile)
+        st.grafico = nothing; st.svgfile = nothing
+    end
     push!(st.pasos, paso)
     nothing
 end
@@ -231,7 +300,9 @@ end
 # El REPL escribe los diccionarios con :limit (alinea las flechas => y corta a 20 filas en una pantalla de 24 × 80)
 const REPL_LIMITE = Union{AbstractDict, Base.KeySet, Base.ValueIterator}
 function muestra(v)
-    if v isa REPL_LIMITE
+    if es_plot(v)
+        registra(v)
+    elseif v isa REPL_LIMITE
         show(IOContext(stdout, :limit => true, :displaysize => (24, 80), :module => T[].modulo), MIME"text/plain"(), v)
         println(stdout)
     elseif v !== nothing
@@ -448,13 +519,16 @@ function reescribe(e, linea, nivel; final = false)
 end
 
 # ── Ejecutar y fotografiar ───────────────────────────────────────────────
-function traza(codigo::AbstractString, config::AbstractDict)
+function traza(codigo::AbstractString, config::AbstractDict; svg = nothing)
     salida = tempname()
     touch(salida)
     st = Estado(Module(:Main), Any[], Any[], Symbol[], Any[], 0, Dict{Int,Int}(), 0, Dict{Symbol,Any}(),
                 String.(get(config, "columnas", String[])), get(config, "fila_en", "") == "cada_linea",
-                String.(get(config, "ocultar", String[])), salida, Dict{Symbol,Vector{String}}(), Dict{UInt,Int}())
+                String.(get(config, "ocultar", String[])), salida, Dict{Symbol,Vector{String}}(), Dict{UInt,Int}(),
+                nothing, svg, 0, nothing)
     T[] = st
+    occursin(r"\busing\s+.*\bPlots\b", codigo) && carga_plots()
+    PLOTS[] === nothing || (PLOTS[].CURRENT_PLOT.nullableplot = nothing)     # cada programa empieza sin gráfico actual
     CODIGO[] = codigo
     Core.eval(st.modulo, :(using Random; Random.seed!(1)))
     push!(st.pasos, Dict("linea" => nothing, "tipo" => "inicio", "estado" => Dict(), "orden" => String[],
@@ -497,12 +571,18 @@ end
 
 # ── Leer y escribir los capítulos ────────────────────────────────────────
 const CARPETA_TRAZAS = "datos/trazas"
+const CARPETA_GRAFICOS = "datos/graficos"
 function procesa(fichero)
     lineas = readlines(fichero)
     base = replace(basename(fichero), r"\.md$" => "")
     mkpath(CARPETA_TRAZAS)
     for f in readdir(CARPETA_TRAZAS; join = true)
         startswith(basename(f), base * "-") && endswith(f, ".json") && rm(f)
+    end
+    if isdir(CARPETA_GRAFICOS)
+        for f in readdir(CARPETA_GRAFICOS; join = true)
+            startswith(basename(f), base * "-") && endswith(f, ".svg") && rm(f)
+        end
     end
     n = 0
     for i in eachindex(lineas)
@@ -517,7 +597,7 @@ function procesa(fichero)
         codigo = join(lineas[ini+1:fin-1], "\n")
         n += 1
         archivo = joinpath(CARPETA_TRAZAS, "$base-$n.json")
-        write(archivo, JSON.json(traza(codigo, cfg)))
+        write(archivo, JSON.json(traza(codigo, cfg; svg = joinpath(CARPETA_GRAFICOS, "$base-$n"))))
         lineas[i+1] = JSON.json(Dict("config" => cfg, "archivo" => archivo))
     end
     write(fichero, join(lineas, "\n") * "\n")

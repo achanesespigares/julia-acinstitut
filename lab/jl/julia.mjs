@@ -101,6 +101,7 @@ class Programa {
       return { t: "DataFrame", df: true, id, cols: [...x.nombres], tipos: x.cols.map(c => V.eltipo(c)), cid: x.cols.map(c => this.unId(c)), v: x.cols.map(c => V.elementos(c).map(e => V.repr(e))) };
     }
     if (x.T === "FilaDF") return { t: V.tipo(x), r: this.prim.muestra(x) };
+    if (x.T === "Plot") return { t: V.tipo(x), plot: this.prim.describeGrafico(x), id: this.unId(x) };
     if (x.T === "GrupoDF") throw new NoSoportado("guardar un groupby en una variable: úsalo dentro de combine(…)");
     if (x.vistaTxt || x.T === "VistaRara") throw new NoSoportado("guardar una vista (view) en una variable");
     if (MX.esMatriz(x) && V.largo(x) > 400) return { t: V.tipo(x), r: MX.muestraM(x, true) };
@@ -159,6 +160,7 @@ class Programa {
     paso.estado = est; paso.orden = orden;
     if (this.pila.length) paso.marcos = this.fotoMarcos();
     paso.salida = this.salida; paso.nfilas = this.filas.length;
+    if (this.grafico) { paso.grafico = this.grafico; this.grafico = null; }
     this.pasos.push(paso);
   }
   fila(locs) {
@@ -218,8 +220,12 @@ class Programa {
     if (nombre in TIPOS) return TIPOS[nombre];
     if (this.prim.tiene(nombre)) return this.prim.funcion(nombre);
     // un nombre de un paquete que el programa no ha cargado: Julia da una pista (los paquetes están cargados en trazar.jl)
-    for (const [p, t] of Object.entries(this.prim.paquetes)) if (nombre in t)
-      throw new ErrorJulia("UndefVarError: `" + nombre + "` not defined in `Main`\nSuggestion: check for spelling errors or missing imports.\nHint: a global variable of this name also exists in " + p + ".");
+    for (const [p, t] of Object.entries(this.prim.paquetes)) if (nombre in t) {
+      const base = "UndefVarError: `" + nombre + "` not defined in `Main`\nSuggestion: check for spelling errors or missing imports.\n";
+      // Plots no está cargado en trazar.jl hasta que un programa lo usa: sin using Plots, Julia no da pista
+      if (p === "Plots") throw new ErrorJulia(base.replace(/\n$/, ""));
+      throw new ErrorJulia(base + "Hint: a global variable of this name also exists in " + p + ".");
+    }
     if (CONOCIDAS.has(nombre)) throw new NoSoportado("la función " + nombre + "()");
     throw new ErrorJulia("UndefVarError: `" + nombre + "` not defined in `Main`\nSuggestion: check for spelling errors or missing imports.");
   }
@@ -287,7 +293,7 @@ class Programa {
       case "using_statement": {       // using DataFrames, Statistics, LinearAlgebra: los paquetes que el laboratorio conoce
         if (nivel !== 0) throw new NoSoportado("using dentro de un bloque");
         const ps = hijos(n);
-        for (const p of ps) if (p.type !== "identifier" || !this.prim.paquetes[p.text]) throw new NoSoportado("cargar el paquete " + p.text + ": el laboratorio solo conoce DataFrames, Statistics y LinearAlgebra");
+        for (const p of ps) if (p.type !== "identifier" || !this.prim.paquetes[p.text]) throw new NoSoportado("cargar el paquete " + p.text + ": el laboratorio solo conoce DataFrames, Statistics, LinearAlgebra y Plots");
         this.va(l);
         for (const p of ps) this.prim.carga(p.text);
         this.paso(l, sc);
@@ -312,7 +318,9 @@ class Programa {
       // como es_asignacion de trazar.jl: x ÷= 2 o A .+= 1 no cuentan como asignaciones y el REPL escribe su valor
       const asignacion = ["assignment", "local_statement", "global_statement"].includes(n.type) || (n.type === "binary_expression" && opDe(n) === ".=") ||
         (n.type === "compound_assignment_expression" && ["+=", "-=", "*=", "/=", "^=", ".="].includes(opDe(n)));
-      if (!asignacion && v.T !== "Nothing") this.salida += this.prim.muestra(v) + "\n";
+      // un gráfico no se escribe en la consola: se dibuja (como en el REPL, que lo abre en su ventana)
+      if (!asignacion && v.T === "Plot") this.grafico = this.prim.describeGrafico(v);
+      else if (!asignacion && v.T !== "Nothing") this.salida += this.prim.muestra(v) + "\n";
       this.paso(l, sc);
       return NADA;
     }

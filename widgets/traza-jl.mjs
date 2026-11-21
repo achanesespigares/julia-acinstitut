@@ -211,7 +211,97 @@ const ESTILOS_JL = `
 .tz .rango{ font:500 12.5px/1.35 var(--texto); color:var(--banda); }
 .tz .rango code{ font:600 12.5px/1 var(--mono); color:var(--tinta); }
 .tz .vec.esrango .cas .v{ border-style:dotted; color:var(--sub); }
+/* los gráficos (capítulo 12): la ficha de un Plot en la memoria y la caja donde se dibuja */
+.tz .gficha{ display:flex; flex-direction:column; gap:5px; }
+.tz .gficha .gtit{ font:500 12.5px/1.3 var(--texto); color:var(--sub); }
+.tz .gficha .gtit b{ font-family:var(--titulo); color:var(--tinta); }
+.tz .gserie{ display:flex; align-items:center; flex-wrap:wrap; gap:8px; border:2px solid var(--tinta); background:#fff; padding:6px 9px; transition:background .25s; }
+.tz .gserie.cambia{ background:var(--suave); border-color:var(--acento); }
+.tz .gserie .mues{ display:inline-block; width:26px; height:12px; flex:none; }
+.tz .gserie .et{ font:600 13.5px/1.2 var(--mono); }
+.tz .gserie .que{ font:500 12px/1.2 var(--texto); color:var(--banda); }
+.tz .gvacio{ font:500 13px/1.4 var(--texto); color:var(--banda); padding:6px 0; }
+.tz .tz-graf{ padding:10px; background:#fff; }
+.tz .tz-graf img, .tz .tz-graf svg{ display:block; width:100%; height:auto; max-width:640px; margin:0 auto; }
+.tz .tz-graf-caja{ margin-top:16px; }
+.tz .tz-graf-caja.nuevo{ box-shadow:0 0 0 3px var(--suave); }
+.tz .tz-graf-caja.nuevo .tz-barra{ background:var(--acento); }
+.tz .tz-graf .vacio{ font:500 13px/1.4 var(--texto); color:var(--banda); margin:0; }
 `;
+
+// ── Dibujar un gráfico (capítulo 12) ─────────────────────────────────────────────────
+// En el libro, el gráfico es el SVG que hace Plots. En el laboratorio se dibuja aquí, con lo que el
+// intérprete ha calculado igual que Plots: los puntos de cada serie, sus colores, los límites de los ejes
+// y sus marcas. El aspecto se parece al de Plots (GR), pero no es idéntico píxel a píxel.
+let nGraf = 0;
+function dibujaGrafico(g) {
+  const sp = g.sp[0], W = 600, H = 400, e = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const xa = +sp.x.lim[0], xb = +sp.x.lim[1], ya = +sp.y.lim[0], yb = +sp.y.lim[1];
+  const ancho = s => s.length * 7.2;
+  const Lm = 16 + Math.max(0, ...sp.y.etiquetas.map(ancho)) + 8 + (sp.y.guia ? 22 : 0);
+  const R = 18, T = 14 + (sp.titulo ? 30 : 0), B = 30 + (sp.x.guia ? 24 : 0);
+  const X = v => Lm + (v - xa) / (xb - xa) * (W - Lm - R), Y = v => H - B - (v - ya) / (yb - ya) * (H - T - B);
+  const id = "gclip" + (++nGraf);
+  let o = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + " " + H + '" font-family="Helvetica, Arial, sans-serif" role="img" aria-label="' + e(sp.titulo || "Un gráfico") + '">' +
+    '<rect width="' + W + '" height="' + H + '" fill="#fff"/><defs><clipPath id="' + id + '"><rect x="' + Lm + '" y="' + T + '" width="' + (W - Lm - R) + '" height="' + (H - T - B) + '"/></clipPath></defs>';
+  sp.x.marcas.forEach(m => { const x = X(+m); o += '<line x1="' + x + '" y1="' + T + '" x2="' + x + '" y2="' + (H - B) + '" stroke="#000" stroke-opacity=".1"/>'; });
+  sp.y.marcas.forEach(m => { const y = Y(+m); o += '<line x1="' + Lm + '" y1="' + y + '" x2="' + (W - R) + '" y2="' + y + '" stroke="#000" stroke-opacity=".1"/>'; });
+  o += '<path d="M' + Lm + " " + T + "V" + (H - B) + "H" + (W - R) + '" fill="none" stroke="#000"/>';
+  sp.x.marcas.forEach((m, i) => { const x = X(+m); o += '<line x1="' + x + '" y1="' + (H - B) + '" x2="' + x + '" y2="' + (H - B - 5) + '" stroke="#000"/><text x="' + x + '" y="' + (H - B + 17) + '" font-size="12" text-anchor="middle">' + e(sp.x.etiquetas[i]) + "</text>"; });
+  sp.y.marcas.forEach((m, i) => { const y = Y(+m); o += '<line x1="' + Lm + '" y1="' + y + '" x2="' + (Lm + 5) + '" y2="' + y + '" stroke="#000"/><text x="' + (Lm - 6) + '" y="' + (y + 4) + '" font-size="12" text-anchor="end">' + e(sp.y.etiquetas[i]) + "</text>"; });
+  if (sp.titulo) o += '<text x="' + ((Lm + W - R) / 2) + '" y="' + 28 + '" font-size="17" text-anchor="middle">' + e(sp.titulo) + "</text>";
+  if (sp.x.guia) o += '<text x="' + ((Lm + W - R) / 2) + '" y="' + (H - 8) + '" font-size="14" text-anchor="middle">' + e(sp.x.guia) + "</text>";
+  if (sp.y.guia) o += '<text transform="translate(16 ' + ((T + H - B) / 2) + ') rotate(-90)" font-size="14" text-anchor="middle">' + e(sp.y.guia) + "</text>";
+  const DASH = { dash: "9 5", dot: "2 4", dashdot: "9 4 2 4", dashdotdot: "9 4 2 4 2 4" };
+  const marca = (forma, x, y, r, s) => {
+    const f = 'fill="' + s.relleno + '" stroke="' + s.borde + '" stroke-width="1"';
+    const pol = pts => '<polygon points="' + pts.map(([a, b]) => (x + a * r).toFixed(1) + "," + (y + b * r).toFixed(1)).join(" ") + '" ' + f + "/>";
+    if (forma === "rect") return '<rect x="' + (x - r * 0.9) + '" y="' + (y - r * 0.9) + '" width="' + r * 1.8 + '" height="' + r * 1.8 + '" ' + f + "/>";
+    if (forma === "diamond") return pol([[0, -1.2], [1.2, 0], [0, 1.2], [-1.2, 0]]);
+    if (forma === "utriangle") return pol([[0, -1.2], [1.1, 0.8], [-1.1, 0.8]]);
+    if (forma === "dtriangle") return pol([[0, 1.2], [1.1, -0.8], [-1.1, -0.8]]);
+    if (forma === "rtriangle") return pol([[1.2, 0], [-0.8, 1.1], [-0.8, -1.1]]);
+    if (forma === "ltriangle") return pol([[-1.2, 0], [0.8, 1.1], [0.8, -1.1]]);
+    if (/^star/.test(forma)) { const n = +forma.slice(4) || 5, pts = []; for (let k = 0; k < 2 * n; k++) { const a = -Math.PI / 2 + k * Math.PI / n, q = k % 2 ? 0.5 : 1.3; pts.push([q * Math.cos(a), q * Math.sin(a)]); } return pol(pts); }
+    if (forma === "cross" || forma === "+") return '<path d="M' + (x - r) + " " + y + "H" + (x + r) + "M" + x + " " + (y - r) + "V" + (y + r) + '" stroke="' + s.relleno + '" stroke-width="2"/>';
+    if (forma === "xcross" || forma === "x") return '<path d="M' + (x - r) + " " + (y - r) + "L" + (x + r) + " " + (y + r) + "M" + (x - r) + " " + (y + r) + "L" + (x + r) + " " + (y - r) + '" stroke="' + s.relleno + '" stroke-width="2"/>';
+    if (["hexagon", "pentagon", "heptagon", "octagon"].includes(forma)) { const n = { pentagon: 5, hexagon: 6, heptagon: 7, octagon: 8 }[forma], pts = []; for (let k = 0; k < n; k++) { const a = -Math.PI / 2 + 2 * k * Math.PI / n; pts.push([1.1 * Math.cos(a), 1.1 * Math.sin(a)]); } return pol(pts); }
+    return '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="' + r + '" ' + f + "/>";
+  };
+  o += '<g clip-path="url(#' + id + ')">';
+  for (const s of sp.series) {
+    const pts = s.x.map((x, i) => [+x, +s.y[i]]);
+    const w = +s.ancho;
+    if (s.tipo === "path" && w > 0) {
+      let d = "", pluma = false;
+      for (const [x, y] of pts) { if (!Number.isFinite(x) || !Number.isFinite(y)) { pluma = false; continue; } d += (pluma ? "L" : "M") + X(x).toFixed(1) + " " + Y(y).toFixed(1); pluma = true; }
+      o += '<path d="' + d + '" fill="none" stroke="' + s.color + '" stroke-width="' + (1.4 * w) + '" stroke-linejoin="round" stroke-linecap="round"' + (DASH[s.estilo] ? ' stroke-dasharray="' + DASH[s.estilo] + '"' : "") + "/>";
+    }
+    if (s.marca !== "none") for (const [x, y] of pts) if (Number.isFinite(x) && Number.isFinite(y)) o += marca(s.marca, X(x), Y(y), +s.tam * 1.05, s);
+  }
+  o += "</g>";
+  // la leyenda: las series con etiqueta, en la esquina con menos puntos («best»)
+  const conEt = sp.series.filter(s => s.etiqueta !== "");
+  if (sp.leyenda !== "none" && conEt.length) {
+    const lw = 46 + Math.max(...conEt.map(s => ancho(s.etiqueta))), lh = 10 + 20 * conEt.length;
+    const esq = { topright: [W - R - lw - 8, T + 8], topleft: [Lm + 8, T + 8], bottomright: [W - R - lw - 8, H - B - lh - 8], bottomleft: [Lm + 8, H - B - lh - 8] };
+    let pos = sp.leyenda.replace(/^outer/, "");
+    if (pos === "right") pos = "topright"; if (pos === "left") pos = "topleft"; if (pos === "top") pos = "topright"; if (pos === "bottom") pos = "bottomright";
+    if (!esq[pos]) {
+      const dentro = ([lx, ly]) => sp.series.reduce((n, s) => n + s.x.filter((x, i) => { const px = X(+x), py = Y(+s.y[i]); return px >= lx && px <= lx + lw && py >= ly && py <= ly + lh; }).length, 0);
+      pos = ["topright", "topleft", "bottomright", "bottomleft"].reduce((m, k) => dentro(esq[k]) < dentro(esq[m]) ? k : m, "topright");
+    }
+    const [lx, ly] = esq[pos];
+    o += '<rect x="' + lx + '" y="' + ly + '" width="' + lw + '" height="' + lh + '" fill="#fff" stroke="#000" stroke-opacity=".35"/>';
+    conEt.forEach((s, k) => {
+      const y = ly + 15 + 20 * k;
+      if (s.tipo === "path" && +s.ancho > 0) o += '<line x1="' + (lx + 8) + '" y1="' + y + '" x2="' + (lx + 34) + '" y2="' + y + '" stroke="' + s.color + '" stroke-width="' + (1.4 * +s.ancho) + '"' + (DASH[s.estilo] ? ' stroke-dasharray="' + DASH[s.estilo] + '"' : "") + "/>";
+      if (s.marca !== "none") o += marca(s.marca, lx + 21, y, Math.min(+s.tam * 1.05, 6), s);
+      o += '<text x="' + (lx + 40) + '" y="' + (y + 4) + '" font-size="12">' + e(s.etiqueta) + "</text>";
+    });
+  }
+  return o + "</svg>";
+}
 
 const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const code = s => "<code>" + esc(s) + "</code>";
@@ -267,6 +357,7 @@ const PLANTILLA = `
     <div class="tz-caja"><div class="tz-barra negro"><span>Consola</span></div><pre class="tz-consola"></pre></div>
   </div>
 </div>
+<div class="tz-caja tz-graf-caja"><div class="tz-barra negro"><span>Gráfico</span><span class="tz-graf-sub"></span></div><div class="tz-graf"></div></div>
 <div class="tz-caja tz-tabla-bloque"><div class="tz-barra"><span>Tabla de traza</span><span class="tz-tabla-sub"></span></div>
   <div style="overflow-x:auto"><table class="tz-tabla"><thead></thead><tbody></tbody></table></div><p class="tz-nota"></p></div>`;
 
@@ -280,6 +371,7 @@ const EJEMPLOS = [
   { nombre: "Un tipo propio", codigo: "mutable struct Ficha\n    nombre::String\n    faltas::Int\nend\nbiel = Ficha(\"Biel\", 0)\nbiel.faltas += 1\ncopia = biel\ncopia.faltas = 5\nbiel\nresumen(f::Ficha) = f.nombre * \": \" * string(f.faltas) * \" faltas\"\nr = resumen(biel)\nresumen(\"Biel\")" },
   { nombre: "Una tabla de datos", codigo: "using DataFrames, Statistics\nclase = DataFrame(nombre = [\"Ana\", \"Biel\", \"Carla\", \"Dani\"],\n                  curso = [2, 1, 2, 1],\n                  nota = [9.0, 4.5, 7.5, 6.0])\naprobados = clase[clase.nota .>= 5, :]\nranking = sort(clase, :nota, rev = true)\npor_curso = combine(groupby(clase, :curso), :nota => mean => :media)\nclase.aprobada = clase.nota .>= 5\nclase\nclase.edad" },
   { nombre: "Un sistema de ecuaciones", codigo: "using LinearAlgebra\nA = [2 1; 4 3]\nb = [5, 11]\nx = A \\ b\nd = det(A)\nF = [2//1 1; 4 3]\nFinv = inv(F)\nF * Finv == I\nB = [2 4; 1 2]\nB \\ [1, 2]" },
+  { nombre: "Un gráfico", codigo: "using Plots\nexamen = 1:3\nana = [6.5, 8.0, 9.0]\nbiel = [5.0, 6.5, 7.5]\np = plot(examen, ana, label = \"Ana\", title = \"Notas\", xlabel = \"examen\")\nplot!(p, examen, biel, label = \"Biel\")\nscatter!(p, [3], [9.0], label = \"la mejor\", markersize = 7)" },
   { nombre: "Un bucle que suma", codigo: "notas = [9.0, 6.5, 4.0, 7.5]\ntotal = 0.0\nfor i in eachindex(notas)\n    if notas[i] >= 5\n        total += notas[i]\n    end\nend\ntotal", tabla: "i, notas[i], total" },
   { nombre: "Una función", codigo: "function media(v)\n    s = 0.0\n    for x in v\n        s += x\n    end\n    return s / length(v)\nend\n\nm = media([2, 4, 9])\nprintln(\"La media es \", m)" },
   { nombre: "b = a no copia", codigo: "a = [1, 2, 3]\nb = a\nb[1] = 100\na\nc = copy(a)\nc[1] = 0\na" },
@@ -396,6 +488,8 @@ function dibujaTraza(el, C, D) {
   const porLinea = C.fila_en === "cada_linea";
   const ocultas = new Set(C.ocultar || []);
   let k = 0, timer = null;
+  const hayGraficos = P.some(x => x.grafico);
+  let grafPintado = null;
 
   q(".tz-tit").textContent = C.titulo || "";
   q(".tz-etq").textContent = C.etiqueta || "";
@@ -403,6 +497,7 @@ function dibujaTraza(el, C, D) {
   if (!C.idea) q(".tz-idea").style.display = "none";
   q(".tz-codigo").innerHTML = L.map((l, i) => '<span class="ln" data-n="' + (i + 1) + '"><span class="fl">▶</span><span class="no">' + (i + 1) + "</span>" + '<span class="tx">' + (colorea(l) || " ") + "</span></span>").join("");
   if (!cols.length) q(".tz-tabla-bloque").style.display = "none";
+  if (!hayGraficos) q(".tz-graf-caja").style.display = "none";
   q(".tz-tabla").querySelector("thead").innerHTML = "<tr>" + cols.map(c => "<th>" + esc(c) + "</th>").join("") + "</tr>";
   q(".tz-tabla-sub").textContent = porLinea ? "una fila por línea" : "una fila por vuelta";
   q(".tz-nota").textContent = porLinea ? "Cada fila es el estado justo después de ejecutar esa línea." : "La fila de cada vuelta se escribe al terminarla.";
@@ -414,7 +509,10 @@ function dibujaTraza(el, C, D) {
   const muestra = v => !v ? "" : v.struct ? v.t + "(" + v.el.map(e => muestra(e.v)).join(", ") + ")" : v.e ? v.v[0] : v.rango ? v.rango : v.v ? "[" + v.v.join(", ") + (v.nv ? ", …" : "") + "]" : v.t === "function" ? v.r : v.r || v.t;
   const varDelFor = l => ((L[l - 1] || "").match(/^\s*for\s+([\w,() ]+?)\s*(?:\bin\b|=|∈)\s*(.+?)\s*$/) || []);
 
+  const nSeries = v => v.plot.sp[0].series.length;
+  const seriesTxt = n => n + (n === 1 ? " serie" : " series");
   function quees(v) {
+    if (v.plot) return "un gráfico (" + code("Plots.Plot") + "): un objeto que guarda " + (nSeries(v) === 1 ? "una serie de datos y cómo dibujarla" : nSeries(v) ? seriesTxt(nSeries(v)) + " de datos y cómo dibujarlas" : "cómo dibujarse, aún sin datos") + " (colores, títulos, ejes)";
     if (v.t === "function") return "una función: guarda sus instrucciones, que no se ejecutan hasta que alguien la llame";
     if (v.df) return "una tabla (" + code("DataFrame") + ") de " + longitud(v) + (longitud(v) === 1 ? " fila" : " filas") + " y " + v.cols.length + (v.cols.length === 1 ? " columna" : " columnas") + (v.cols.length ? ": " + v.cols.map(code).join(", ") : "");
     if (v.t === "Nothing") return "que vale " + code("nothing") + ": el valor de Julia para decir «aquí no hay nada». Su tipo es " + code("Nothing");
@@ -476,7 +574,7 @@ function dibujaTraza(el, C, D) {
     { const lt = (L[p.linea - 1] || "").trim();
       const us = lt.match(/^using\s+(.+)$/);
       if (us) {
-        const ps = us[1].split(",").map(x => x.trim()), que = { DataFrames: "DataFrame, groupby, combine, nrow…", Statistics: "mean, median…", LinearAlgebra: "det, dot, norm, la identidad I…" };
+        const ps = us[1].split(",").map(x => x.trim()), que = { DataFrames: "DataFrame, groupby, combine, nrow…", Statistics: "mean, median…", LinearAlgebra: "det, dot, norm, la identidad I…", Plots: "plot, scatter, plot!, title!…" };
         return (ps.length > 1 ? "Se cargan los paquetes " + ps.map(code).join(" y ") : "Se carga el paquete " + code(ps[0])) + ". Desde esta línea existen sus funciones (" + ps.map(x => que[x] || "").filter(Boolean).join("; ") + "), que Julia no trae de serie.";
       }
       if (/^break\b/.test(lt)) return "Se ejecuta <code>break</code>: Julia sale del bucle en este mismo momento, sin terminar la vuelta.";
@@ -518,7 +616,7 @@ function dibujaTraza(el, C, D) {
     for (const n of lista) {
       const a = antes[n], b = ahora[n];
       const gemelo = b.id ? nombres(ahora, orden).find(m => m !== n && antes[m] && antes[m].id === b.id) : null;
-      const cosa = b.dict ? "diccionario" : b.d ? "matriz" : b.struct ? "objeto" : "vector", fem = !!b.d;
+      const cosa = b.dict ? "diccionario" : b.d ? "matriz" : b.struct ? "objeto" : b.plot ? "gráfico" : "vector", fem = !!b.d;
       if (!a && gemelo) { frases.push("Se crea " + code(n) + ", pero no es " + (fem ? "una matriz nueva" : "un " + cosa + " nuevo") + ": es <b>otro nombre</b> para " + (fem ? "la misma" : "el mismo") + " " + cosa + " que " + code(gemelo) + ". Julia no copia " + (fem ? "las matrices" : "los " + cosa + "s") + " al asignarlos."); continue; }
       if (a && a.dict && b.dict && !igual(a, b)) {         // un diccionario que cambia
         const mapa = d => new Map(d.k.map((k, i) => [k, d.v[i]]));
@@ -562,10 +660,11 @@ function dibujaTraza(el, C, D) {
         else if (/=\s*det\(/.test(lt)) extra = b.e && /^-?0(\.0|\/\/1)?$/.test(b.v[0]) ? " Es el <b>determinante</b>, y vale 0: un sistema con esta matriz no tiene una única solución." : " Es el <b>determinante</b>: como no es 0, un sistema con esta matriz tiene una única solución.";
         else if (/=\s*dot\(/.test(lt) || /'\s*\*/.test(lt)) extra = " Es el <b>producto escalar</b>: cada casilla por la de la misma posición, y todo sumado.";
         else if (/=\s*norm\(/.test(lt)) extra = " Es la <b>norma</b>: la longitud del vector, la raíz cuadrada de la suma de los cuadrados.";
+        if (b.plot && !p.grafico) extra = " Como la línea es una asignación, Julia no lo dibuja: el gráfico ya existe en la memoria, pero aún no se ve.";
         frases.push("Se crea " + code(n) + ", " + quees(b) + "." + extra + (b.local && !mp ? " Es una variable local del bucle." : "")); continue;
       }
       if (b.id && a.id === b.id && !igual(a, b) && hechos.some(m => ahora[m] && ahora[m].id === b.id)) {
-        frases.push("Y " + code(n) + " también cambia, porque es " + (b.d ? "la misma matriz" : b.dict ? "el mismo diccionario" : b.struct ? "el mismo objeto" : "el mismo vector") + " que " + code(hechos.find(m => ahora[m] && ahora[m].id === b.id)) + "."); hechos.push(n); continue;
+        frases.push("Y " + code(n) + " también cambia, porque es " + (b.d ? "la misma matriz" : b.dict ? "el mismo diccionario" : b.struct ? "el mismo objeto" : b.plot ? "el mismo gráfico" : "el mismo vector") + " que " + code(hechos.find(m => ahora[m] && ahora[m].id === b.id)) + "."); hechos.push(n); continue;
       }
       if (a.t === "function" && b.t === "function" && b.m > a.m) {       // un método más para la misma función
         const sig = ((L[p.linea - 1] || "").match(/^\s*(?:function\s+)?(\w+!?\(.*?\))/) || [])[1];
@@ -583,6 +682,19 @@ function dibujaTraza(el, C, D) {
         });
         a.cols.forEach(c => { if (!b.cols.includes(c)) fr.push("Se quita la columna " + code(c) + " de " + code(n) + "."); });
         frases.push(...(fr.length ? fr : [code(n) + " cambia."])); hechos.push(n); continue;
+      }
+      if (a.plot && b.plot && a.id === b.id && !igual(a, b)) {         // un gráfico que cambia: plot! le añade series
+        const sa = a.plot.sp[0], sb = b.plot.sp[0], fr = [], nuevas = sb.series.slice(sa.series.length);
+        const desc = s => (s.etiqueta ? "«" + esc(s.etiqueta) + "», " : "") + (s.tipo === "scatter" ? (s.x.length === 1 ? "un punto suelto" : s.x.length + " puntos sueltos") : (s.marca !== "none" ? "una línea con marcas" : "una línea") + " de " + s.x.length + (s.x.length === 1 ? " punto" : " puntos"));
+        if (nuevas.length) fr.push("Se añade a " + code(n) + (nuevas.length === 1 ? " una serie nueva (" + desc(nuevas[0]) + ")" : " " + nuevas.length + " series nuevas") + ": ahora tiene " + seriesTxt(sb.series.length) + ". " + code(n) + " es el mismo objeto de antes: la función con " + code("!") + " lo cambia, no hace uno nuevo.");
+        if (sa.titulo !== sb.titulo) fr.push("Cambia el título de " + code(n) + ": ahora es «" + esc(sb.titulo) + "».");
+        if (sa.x.guia !== sb.x.guia) fr.push("Cambia el nombre del eje x de " + code(n) + ": «" + esc(sb.x.guia) + "».");
+        if (sa.y.guia !== sb.y.guia) fr.push("Cambia el nombre del eje y de " + code(n) + ": «" + esc(sb.y.guia) + "».");
+        if (!nuevas.length) for (const e of ["x", "y"]) if (sa[e].lim.join() !== sb[e].lim.join()) fr.push("Cambian los límites del eje " + e + " de " + code(n) + ": ahora va de " + esc(sb[e].lim[0]) + " a " + esc(sb[e].lim[1]) + ".");
+        if (!fr.length) fr.push(code(n) + " cambia.");
+        const lt = L[p.linea - 1] || "";
+        if (/^\s*\w+!\(/.test(lt) && !new RegExp("^\\s*\\w+!\\(\\s*" + n + "\\b").test(lt)) fr.push("La línea no nombra a " + code(n) + ": una función como " + code((lt.match(/^\s*(\w+!)/) || [])[1]) + " sin un gráfico delante cambia el <b>gráfico actual</b>, el último que se ha hecho o cambiado, y ese es " + code(n) + ".");
+        frases.push(...fr); hechos.push(n); continue;
       }
       if (a.struct && b.struct && a.t === b.t && !igual(a, b)) {       // un objeto que cambia: campo a campo
         const fr = b.el.map((e, i) => igual(e.v, a.el[i].v) ? null : e.v.e && a.el[i].v.e ? "Cambia " + code(n + "." + e.nombre) + ": valía " + esc(a.el[i].v.v[0]) + " y ahora vale " + esc(e.v.v[0]) + "."
@@ -673,6 +785,17 @@ function dibujaTraza(el, C, D) {
       else if (!/(^|[^=!<>≈])=($|[^=])/.test(linea.replace(/"[^"]*"/g, ""))) frases.push("La línea es una expresión: Julia calcula " + code(linea) + " y muestra su valor en la consola" + cola);
       else frases.push("Julia escribe en la consola " + muestra1 + ".");
     }
+    if (p.grafico) {             // la línea muestra un gráfico: Julia lo dibuja
+      const lt = (L[p.linea - 1] || "").trim(), f = (lt.match(/^([\w.]+!?)\(/) || [])[1], nG = p.grafico.sp[0].series.length;
+      const primero = P.findIndex(x => x.grafico) === P.indexOf(p);
+      const donde = primero ? " Aparece abajo, en «Gráfico» (en el REPL, Julia lo abre en una ventana)." : " Se ve abajo, en «Gráfico».";
+      const sus = nG === 1 ? "su única serie" : "sus " + seriesTxt(nG);
+      if (f === "display") frases.push(code("display") + " dibuja el gráfico." + donde);
+      else if (f && /!$/.test(f)) frases.push("Como la línea no es una asignación, Julia muestra lo que devuelve " + code(f) + ", el gráfico ya cambiado, y mostrar un gráfico es <b>dibujarlo</b>, ahora con " + sus + "." + donde);
+      else if (f) frases.push(code(f) + " crea un gráfico nuevo con " + (nG === 1 ? "una serie" : seriesTxt(nG)) + ". Como la línea no lo guarda en ninguna variable, Julia lo muestra, y mostrar un gráfico es <b>dibujarlo</b>." + donde);
+      else if (/^[\w.]+$/.test(lt)) frases.push("Escribir solo " + code(lt) + " hace que Julia muestre su valor, y mostrar un gráfico es <b>dibujarlo</b>, con " + sus + "." + donde);
+      else frases.push("Julia dibuja el gráfico." + donde);
+    }
     if (!frases.length) {
       const lt = (L[p.linea - 1] || "").trim();
       if (prev && prev.tipo === "condicion" && prev.linea === p.linea && / \? /.test(lt))
@@ -697,6 +820,7 @@ function dibujaTraza(el, C, D) {
   const condicion = p => '<div class="tz-cond"><span>' + esc(p.cond.texto) + '</span><span style="color:var(--banda)">' + esc(p.cond.valores) + '</span><span class="res ' + (p.cond.valor === "true" ? "si" : "no") + '">' + esc(p.cond.valor) + "</span></div>";
 
   function cabecera(v) {
+    if (v.plot) return '<span class="tipo" title="' + esc(v.t) + '">' + esc(v.t) + '</span><span class="lon">' + seriesTxt(nSeries(v)) + "</span>";
     if (v.d) return '<span class="tipo">' + esc(v.t) + '</span><span class="lon">' + v.d.join(" × ") + " (filas × columnas)</span>";
     if (v.df) return '<span class="tipo">DataFrame</span><span class="lon">' + longitud(v) + " × " + v.cols.length + " (filas × columnas)</span>";
     const lon = v.dict ? v.k.length + (v.k.length === 1 ? " pareja" : " parejas") : v.e || v.t === "function" ? (v.t === "function" && v.m > 1 ? v.m + " métodos" : "") : v.tupla ? v.el.length + (v.el.length && v.el.every(e => e.nombre) ? (v.el.length === 1 ? " campo" : " campos") : v.el.length === 1 ? " elemento" : " elementos") : v.v ? "longitud " + longitud(v).toLocaleString("es-ES") : "";
@@ -725,7 +849,23 @@ function dibujaTraza(el, C, D) {
       v.k.map((k, i) => { const cl = ant && !ant.has(k) ? "nueva" : ant && ant.get(k) !== v.v[i] ? "cambia" : "";
         return '<tr class="' + cl + '"><td>' + esc(k) + '</td><td class="flecha">=&gt;</td><td>' + esc(v.v[i]) + "</td></tr>"; }).join("") + "</tbody></table>";
   }
+  // un gráfico en la memoria: su título y sus series, cada una con su color
+  function fichaGrafico(v, a) {
+    const sp = v.plot.sp[0], na = a && a.plot && a.id === v.id ? a.plot.sp[0].series.length : null;
+    let h = '<div class="gficha">';
+    const ext = [sp.titulo && "título <b>«" + esc(sp.titulo) + "»</b>", sp.x.guia && "eje x <b>«" + esc(sp.x.guia) + "»</b>", sp.y.guia && "eje y <b>«" + esc(sp.y.guia) + "»</b>"].filter(Boolean);
+    if (ext.length) h += '<div class="gtit">' + ext.join(" · ") + "</div>";
+    if (!sp.series.length) h += '<div class="gvacio">Sin series todavía.</div>';
+    sp.series.forEach((s, i) => {
+      const linea = s.tipo === "path" && +s.ancho > 0, punto = s.marca !== "none";
+      const mues = '<svg class="mues" viewBox="0 0 26 12">' + (linea ? '<line x1="1" y1="6" x2="25" y2="6" stroke="' + s.color + '" stroke-width="2.4"' + (s.estilo !== "solid" ? ' stroke-dasharray="4 3"' : "") + "/>" : "") + (punto ? '<circle cx="13" cy="6" r="4" fill="' + s.relleno + '" stroke="#000" stroke-width=".8"/>' : "") + "</svg>";
+      h += '<div class="gserie' + (na !== null && i >= na ? " cambia" : "") + '">' + mues + '<span class="et">' + (s.etiqueta ? esc(s.etiqueta) : '<i style="font-weight:500;color:var(--banda)">sin etiqueta</i>') + '</span><span class="que">' +
+        (s.tipo === "scatter" ? "puntos" : punto ? "línea con marcas" : "línea") + " · " + s.x.length + (s.x.length === 1 ? " punto" : " puntos") + "</span></div>";
+    });
+    return h + "</div>";
+  }
   function valor(v, a, op = {}) {
+    if (v.plot) return fichaGrafico(v, a);
     if (v.dict) return tablaDict(v, a);
     if (v.df) return tablaDF(v, a);
     if (v.e && C.letras && esTipoTexto(v.t) && v.v[0].length > 2 && [...sinComillas(v.v[0])].length <= 40) return filaLetras(v, a);
@@ -792,7 +932,7 @@ function dibujaTraza(el, C, D) {
       const celda = conFoco && n === C.foco && v.d && Array.isArray(pp) && pp.every(x => est[x] && est[x].v) ? pp.map(x => Number(est[x].v[0])) : null;
       const gem = comparte(n);
       html += '<div class="vec' + (cambio && ant ? " cambia" : "") + (v.local ? " local" : "") + (v.rango ? " esrango" : "") + '"><div class="vec-cab"><span class="nom">' + esc(n) + "</span>" + cabecera(v) +
-        (gem.length ? '<span class="comparte">↔ ' + (v.dict ? "el mismo diccionario" : v.d ? "la misma matriz" : v.struct ? "el mismo objeto" : "el mismo vector") + " que " + gem.join(", ") + "</span>" : "") + "</div>" +
+        (gem.length ? '<span class="comparte">↔ ' + (v.dict ? "el mismo diccionario" : v.d ? "la misma matriz" : v.struct ? "el mismo objeto" : v.plot ? "el mismo gráfico" : "el mismo vector") + " que " + gem.join(", ") + "</span>" : "") + "</div>" +
         (v.t === "function" ? '<div class="otro">' + esc(v.r) + "</div>" : valor(v, a, { grande: conFoco && n === C.foco && !v.d && !v.e, foco: foco >= 1 && foco <= (v.v || []).length ? foco : null, puntero: C.puntero, celda })) + "</div>";
     }
     return html;
@@ -838,6 +978,17 @@ function dibujaTraza(el, C, D) {
     q(".tz-narr").innerHTML = narra(p, prev);
     q(".tz-mem").innerHTML = memoria(p, k ? prev : null);
     q(".tz-consola").textContent = p.salida || "";
+    if (hayGraficos) {          // el último gráfico que se ha dibujado hasta este paso
+      let j = k; while (j > 0 && !P[j].grafico) j--;
+      const caja = q(".tz-graf-caja");
+      caja.classList.toggle("nuevo", !!P[k].grafico);
+      q(".tz-graf-sub").textContent = !P[j].grafico ? "" : j === k ? "se acaba de dibujar" : "el último que se ha dibujado";
+      if (grafPintado !== j) {
+        grafPintado = j;
+        q(".tz-graf").innerHTML = !P[j].grafico ? '<p class="vacio">Todavía no se ha dibujado ningún gráfico.</p>'
+          : P[j].svg ? '<img src="' + new URL("../" + P[j].svg, import.meta.url).href + '" alt="El gráfico que dibuja Plots en este paso">' : dibujaGrafico(P[j].grafico);
+      }
+    }
     q(".tz-cuenta").textContent = "paso " + k + " de " + (P.length - 1);
     q(".tz-ant").disabled = k === 0; q(".tz-sig").disabled = k === P.length - 1;
     const filas = (D.filas || []).slice(0, p.nfilas || 0);

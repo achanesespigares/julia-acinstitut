@@ -35,6 +35,7 @@ project:
     - title: Parte III · Cálculo científico
       children:
         - file: capitulos/11-algebra-lineal.md
+        - file: capitulos/12-graficos.md
 site:
   template: book-theme
   options:
