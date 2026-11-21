@@ -876,6 +876,11 @@ class Programa {
         else { this.marcaGlobal(izq.text, sc); this.glob.set(izq.text, v); }
         continue;
       }
+      if (c.type === "compound_assignment_expression" && !local) {     // global llamadas += 1
+        const [izq] = hijos(c);
+        if (izq.type !== "identifier") throw new NoSoportado("esta declaración");
+        this.marcaGlobal(izq.text, sc); v = this.valor(c, sc); continue;
+      }
       throw new NoSoportado("esta declaración");
     }
     return v;
@@ -1085,6 +1090,11 @@ class Programa {
       for (const a of args) { v = this.valor(a, sc); this.salida += this.escribe(a) + " = " + V.repr(v) + "\n"; }
       return v;
     }
+    // medir: el resultado depende del ordenador (y de cómo compila Julia), así que el laboratorio no lo inventa
+    if (["time", "elapsed", "timed", "allocated", "allocations", "btime", "belapsed", "benchmark", "timev"].includes(nombre))
+      throw new NoSoportado("la macro @" + nombre + ": medir tiempos o memoria depende del ordenador y de cómo compila Julia por dentro, y el laboratorio no lo puede imitar. Mídelo en la nube o en tu ordenador");
+    if (["code_warntype", "code_typed", "code_llvm", "code_native", "code_lowered", "which", "profile"].includes(nombre))
+      throw new NoSoportado("la macro @" + nombre + ": enseña lo que hace el compilador de Julia, que el laboratorio no tiene. Pruébalo en la nube o en tu ordenador");
     throw new NoSoportado("la macro @" + nombre);
   }
   evaluaTexto(texto, locs) {

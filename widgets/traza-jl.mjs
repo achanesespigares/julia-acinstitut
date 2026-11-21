@@ -388,6 +388,7 @@ const EJEMPLOS = [
   { nombre: "Medidas con ruido", codigo: "using Statistics, Random\nRandom.seed!(3)\nmedidas = 20.0 .+ 0.5 .* randn(8)\nmedia = mean(medidas)\ndesviacion = std(medidas)\nmargen = desviacion / sqrt(8)" },
   { nombre: "Tipos con parámetros", codigo: "struct Punto{T<:Real}\n    x::T\n    y::T\nend\nque_es(p::Punto{Int64}) = \"un punto de enteros\"\nque_es(p::Punto) = \"un punto de otro tipo\"\np = Punto(3, 4)\nq = Punto(1.5, 2.0)\nque_es(p)\nque_es(q)\ntypeof(q)" },
   { nombre: "Piedra, papel o tijera", codigo: "abstract type Jugada end\nstruct Piedra <: Jugada end\nstruct Papel <: Jugada end\nstruct Tijera <: Jugada end\ngana(a::Jugada, b::Jugada) = false\ngana(a::Piedra, b::Tijera) = true\ngana(a::Tijera, b::Papel) = true\ngana(a::Papel, b::Piedra) = true\ngana(Piedra(), Tijera())\ngana(Tijera(), Piedra())\ngana(Papel(), Papel())" },
+  { nombre: "Contar los pasos", codigo: "v = [3, 8, 15, 21, 30, 42, 57, 64, 77, 88]\nx = 64\nizq = 1\nder = length(v)\npasos = 0\nwhile izq <= der\n    pasos += 1\n    m = (izq + der) ÷ 2\n    if v[m] == x\n        break\n    elseif v[m] < x\n        izq = m + 1\n    else\n        der = m - 1\n    end\nend\npasos", tabla: "pasos, izq, m, der" },
   { nombre: "Un bucle que suma", codigo: "notas = [9.0, 6.5, 4.0, 7.5]\ntotal = 0.0\nfor i in eachindex(notas)\n    if notas[i] >= 5\n        total += notas[i]\n    end\nend\ntotal", tabla: "i, notas[i], total" },
   { nombre: "Una función", codigo: "function media(v)\n    s = 0.0\n    for x in v\n        s += x\n    end\n    return s / length(v)\nend\n\nm = media([2, 4, 9])\nprintln(\"La media es \", m)" },
   { nombre: "b = a no copia", codigo: "a = [1, 2, 3]\nb = a\nb[1] = 100\na\nc = copy(a)\nc[1] = 0\na" },
@@ -522,7 +523,7 @@ function dibujaTraza(el, C, D) {
   const longitud = v => v && v.df ? (v.v.length ? v.v[0].length : 0) : v && v.v ? (v.nv || v.v.length) : 0;
   // las variables de un paso, en el orden en que aparecieron
   const nombres = (est, orden) => (orden || Object.keys(est)).filter(n => est[n] && !ocultas.has(n));
-  const muestra = v => !v ? "" : v.struct ? v.t + "(" + v.el.map(e => muestra(e.v)).join(", ") + ")" : v.e ? v.v[0] : v.rango ? v.rango : v.v ? "[" + v.v.join(", ") + (v.nv ? ", …" : "") + "]" : v.t === "function" ? v.r : v.r || v.t;
+  const muestra = v => !v ? "" : v.dict ? (v.k.length ? "Dict(" + v.k.map((k, i) => k + " => " + v.v[i]).join(", ") + ")" : "un diccionario vacío") : v.struct ? v.t + "(" + v.el.map(e => muestra(e.v)).join(", ") + ")" : v.e ? v.v[0] : v.rango ? v.rango : v.v ? "[" + v.v.join(", ") + (v.nv ? ", …" : "") + "]" : v.t === "function" ? v.r : v.r || v.t;
   const varDelFor = l => ((L[l - 1] || "").match(/^\s*for\s+([\w,() ]+?)\s*(?:\bin\b|=|∈)\s*(.+?)\s*$/) || []);
 
   const vis = sp => sp.series.filter(s => s.primaria !== false);      // las series que se ven (no la secundaria de unas barras)

@@ -355,6 +355,9 @@ export function crearPrimitivas(prog) {
     const todos = [a, s, b].filter(Boolean);
     if (todos.every(x => x.T === "Int64")) return V.rangoEnteros(a.v, s ? s.v : null, b.v);
     if (todos.every(NUM) && todos.some(x => x.T === "Float64")) return V.rangoDecimales(aNum(a), s ? aNum(s) : 1, aNum(b));
+    // 1:"diez": Julia no sabe hacer un rango con un texto (ni con un tipo propio)
+    if (!s && [a, b].some(x => x.T === "String" || x.T === "Struct") && [a, b].every(x => NUM(x) || x.T === "String" || x.T === "Struct"))
+      throw new ErrorJulia("MethodError: no method matching (::Colon)(::" + tipo(a) + ", ::" + tipo(b) + ")\nThe function `Colon()` exists, but no method is defined for this combination of argument types.");
     throw new NoSoportado("un rango de " + todos.map(tipo).join(" y "));
   };
   P.itera = x => {
@@ -676,6 +679,39 @@ export function crearPrimitivas(prog) {
     let k = 0;
     for (let i = 1; i < els.length; i++) if (P.compara(mayor ? ">" : "<", els[i], els[k]).v) k = i;
     return que === "par" ? { T: "Tuple", a: [els[k], I(k + 1)] } : I(k + 1);
+  };
+  // searchsortedfirst y searchsortedlast: la búsqueda binaria de base/sort.jl, paso a paso (así da lo mismo que
+  // Julia también con un vector desordenado). Solo con vectores de números de una misma clase, comparados con isless
+  const menorQue = (a, b) => {
+    const ent = x => x.T === "Int64" || x.T === "Bool", big = x => x.T === "Bool" ? (x.v ? 1n : 0n) : x.v;
+    if (ent(a) && ent(b)) return big(a) < big(b);
+    const rac = x => ent(x) ? [big(x), 1n] : x.T === "Rational" ? [x.n, x.d] : null;
+    if (rac(a) && rac(b)) { const [p, q] = rac(a), [r, t] = rac(b); return p * t < r * q; }
+    if (a.T === "Float64" && b.T === "Float64") {
+      if (Number.isNaN(a.v)) return false;
+      if (Number.isNaN(b.v)) return true;
+      if (a.v === 0 && b.v === 0) return Object.is(a.v, -0) && !Object.is(b.v, -0);
+      return a.v < b.v;
+    }
+    throw new NoSoportado("comparar un " + tipo(a) + " con un " + tipo(b) + " en una búsqueda binaria");
+  };
+  const ordenada = (nombre, args) => {
+    const [v, x] = args;
+    if (args.length !== 2) throw new NoSoportado(nombre + " con " + args.length + " argumentos");
+    if (!v || v.T !== "Vector") throw new NoSoportado(nombre + " de un " + (v ? tipo(v) : "nada") + (v && V.esRango(v) ? " (con un rango, Julia hace la cuenta directamente)" : ""));
+    return [V.elementos(v), x];
+  };
+  fn.searchsortedfirst = args => {
+    const [els, x] = ordenada("searchsortedfirst", args);
+    let lo = 1, len = els.length;
+    while (len !== 0) { const half = len >>> 1, m = lo + half; if (menorQue(els[m - 1], x)) { lo = m + 1; len -= half + 1; } else len = half; }
+    return I(BigInt(lo));
+  };
+  fn.searchsortedlast = args => {
+    const [els, x] = ordenada("searchsortedlast", args);
+    let lo = 0, hi = els.length + 1;
+    while (lo !== hi - 1) { const m = lo + ((hi - lo) >>> 1); if (menorQue(x, els[m - 1])) hi = m; else lo = m; }
+    return I(BigInt(lo));
   };
   fn.findmax = busca("findmax", true, "par"); fn.findmin = busca("findmin", false, "par");
   fn.argmax = busca("argmax", true, "indice"); fn.argmin = busca("argmin", false, "indice");
