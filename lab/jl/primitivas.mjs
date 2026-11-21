@@ -13,6 +13,7 @@ import * as AL from "./algebra.mjs";
 import * as GR from "./graficos.mjs";
 import * as AZ from "./azar.mjs";
 import * as MT from "./matematicas.mjs";
+import * as EX from "./expr.mjs";
 import { ErrorJulia, NoSoportado, I, F, B, S, Ch, NADA, FALTA, errorMetodo, aNum, tipo, repr } from "./valores.mjs";
 
 const T = nombre => ({ T: "Tipo", nombre });
@@ -21,6 +22,7 @@ export const TIPOS = {
   Any: T("Any"), Number: T("Number"), Real: T("Real"), Integer: T("Integer"), AbstractFloat: T("AbstractFloat"),
   Rational: T("Rational"), Nothing: T("Nothing"), Missing: T("Missing"),
   Signed: T("Signed"), AbstractString: T("AbstractString"), AbstractChar: T("AbstractChar"), DataType: T("DataType"),
+  Symbol: T("Symbol"), Expr: T("Expr"), QuoteNode: T("QuoteNode"), GlobalRef: T("GlobalRef"), LineNumberNode: T("LineNumberNode"),
 };
 // Nombres de Julia que existen pero que el laboratorio aún no sabe ejecutar
 export const CONOCIDAS = new Set(("big BigInt BigFloat Float32 Int32 Int8 UInt8 UInt Complex complex im mean median " +
@@ -477,6 +479,7 @@ export function crearPrimitivas(prog) {
   // Int(x), Float64(x)…
   P.construye = (nombre, args, kw) => {
     if (P.esTipoPropio(nombre)) return P.creaStruct(nombre, args, kw);
+    if (nombre === "Expr" || nombre === "QuoteNode" || nombre === "Symbol") return fn[nombre](args, kw);
     const [x] = args;
     if (args.length !== 1) throw new NoSoportado(nombre + "() con " + args.length + " argumentos");
     if (nombre === "Int64") {
@@ -528,6 +531,28 @@ export function crearPrimitivas(prog) {
   fn.println = args => escribe(args, true);
   fn.print = args => escribe(args, false);
   fn.typeof = ([x]) => T(tipo(x));
+  // ── El código como dato (capítulo 20) ───────────────────────────────
+  fn.Expr = args => {
+    if (!args.length) throw errorMetodo("Expr", args);
+    if (args[0].T !== "Symbol") throw new ErrorJulia("TypeError: in Expr, expected Symbol, got a value of type " + tipo(args[0]));
+    for (const a of args.slice(1)) if (!EX.cabeEnExpr(a)) throw new NoSoportado("meter un " + tipo(a) + " dentro de una expresión");
+    return EX.nuevaExpr(args[0].v, args.slice(1));
+  };
+  fn.esc = args => { if (args.length !== 1) throw errorMetodo("esc", args); return EX.nuevaExpr("escape", [args[0]]); };
+  fn.eval = args => { if (args.length !== 1) throw new NoSoportado("eval con un módulo"); return prog.evalua(args[0]); };
+  fn.QuoteNode = args => { if (args.length !== 1) throw errorMetodo("QuoteNode", args); return { T: "QuoteNode", v: args[0] }; };
+  fn.Symbol = args => { if (!args.length) throw errorMetodo("Symbol", args); return EX.sym(args.map(V.texto).join("")); };
+  fn.dump = args => { if (args.length !== 1) throw new NoSoportado("dump con opciones"); prog.salida += EX.dump(args[0]) + "\n"; return NADA; };
+  P.modulos = P.modulos || {};
+  P.modulos.Meta = {
+    parse: (args, kw) => {
+      if (args.length !== 1 || args[0].T !== "String" || (kw && kw.size)) throw new NoSoportado("Meta.parse con más de un argumento");
+      const t = args[0].v;
+      if (!t.trim()) return NADA;
+      prog.leyendo = "none";
+      try { return prog.aExpr(prog.leeCodigo(t), null, false); } finally { prog.leyendo = null; }
+    },
+  };
   fn.eltype = ([x]) => {
     if (x.T === "Tipo") { const m = /^Vector\{(.+)\}$/.exec(x.nombre); if (m) return T(m[1]); throw new NoSoportado("eltype de " + x.nombre); }
     if (V.esVector(x) || MX.esMatriz(x)) return T(V.eltipo(x));
@@ -615,8 +640,24 @@ export function crearPrimitivas(prog) {
     const r = x % y; return F(r !== 0 && (r < 0) !== (y < 0) ? r + y : r);
   });
   fn.gcd = dosEnteros("gcd", (x, y, ent) => { if (!ent) throw new NoSoportado("gcd con decimales"); let a = x < 0n ? -x : x, b = y < 0n ? -y : y; while (b) [a, b] = [b, a % b]; return I(a); });
-  fn.max = args => { if (args.length < 2) throw errorMetodo("max", args); return args.reduce((a, b) => P.compara("<", a, b).v ? b : a); };
-  fn.min = args => { if (args.length < 2) throw errorMetodo("min", args); return args.reduce((a, b) => P.compara("<", b, a).v ? b : a); };
+  // max(x::Real, y::Real) = max(promote(x, y)...): con un decimal, el resultado es decimal; con un NaN, NaN
+  const extremo2 = (nombre, mayor) => args => {
+    if (args.length === 1 && NUM(args[0]) && args[0].T !== "Irrational") return args[0];
+    if (args.length < 2) throw errorMetodo(nombre, args);
+    let xs = args;
+    if (xs.every(NUM) && new Set(xs.map(x => x.T)).size > 1) {
+      if (xs.some(x => x.T === "Irrational" || x.T === "Bool")) throw new NoSoportado(nombre + " de estos números");
+      const el = V.promueve(xs.map(x => x.T === "Rational" ? "Rational{Int64}" : x.T));
+      xs = xs.map(x => V.convierte(x, el));
+    }
+    if (xs.some(x => x.T === "Float64" && Number.isNaN(x.v))) return xs.find(x => x.T === "Float64" && Number.isNaN(x.v));
+    return xs.reduce((a, b) => {
+      if (a.T === "Float64" && b.T === "Float64" && a.v === 0 && b.v === 0) return mayor ? (Object.is(a.v, -0) ? b : a) : (Object.is(a.v, -0) ? a : b);     // max(-0.0, 0.0) == 0.0
+      return (mayor ? P.compara("<", a, b) : P.compara("<", b, a)).v ? b : a;
+    });
+  };
+  fn.max = extremo2("max", true);
+  fn.min = extremo2("min", false);
   fn.factorial = unNum("factorial", x => {
     if (!esEnteroLike(x)) throw new NoSoportado("factorial de un decimal");
     const n = bigDe(x);
@@ -825,7 +866,7 @@ export function crearPrimitivas(prog) {
   GR.graficos(P, fn, prog);
   AZ.funcionesDeAzar(P, fn, prog);
   const tabla = new Map(Object.entries(fn).map(([k, f]) => [k, { T: "Primitiva", nombre: k, f }]));
-  const constantes = { Random: { T: "Modulo", nombre: "Random" }, π: V.PI, pi: V.PI, ℯ: V.E, Inf: F(Infinity), NaN: F(NaN), nothing: NADA, missing: FALTA, true: B(true), false: B(false) };
+  const constantes = { Random: { T: "Modulo", nombre: "Random" }, Meta: { T: "Modulo", nombre: "Meta" }, π: V.PI, pi: V.PI, ℯ: V.E, Inf: F(Infinity), NaN: F(NaN), nothing: NADA, missing: FALTA, true: B(true), false: B(false) };
   // los paquetes que el programa ha cargado con using (DataFrames, Statistics)
   const cargados = new Map();
   P.carga = nombre => { if (!P.paquetes[nombre]) return false; cargados.set(nombre, new Map(Object.entries(P.paquetes[nombre]).map(([k, f]) => [k, typeof f === "function" ? { T: "Primitiva", nombre: k, f } : f]))); return true; };

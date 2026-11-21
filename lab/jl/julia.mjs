@@ -14,6 +14,9 @@ import { ErrorJulia, NoSoportado, I, F, B, S, Ch, NADA, FALTA } from "./valores.
 import { crearPrimitivas, TIPOS, CONOCIDAS } from "./primitivas.mjs";
 import { NOMBRES_BASE, NOMBRES_PAQUETES } from "./nombres-base.mjs";
 import * as MX from "./matrices.mjs";
+import * as EX from "./expr.mjs";
+
+V.GANCHOS.reprExpr = EX.quoteTop; V.GANCHOS.reprRaro = EX.reprRaro; V.GANCHOS.textoExpr = EX.textoExpr; V.GANCHOS.reprSimbolo = EX.reprSimbolo;
 
 const LIMITE = 2000;
 class Retorno { constructor(v) { this.v = v; } }
@@ -84,6 +87,7 @@ class Programa {
     this.columnas = config.columnas || []; this.porLinea = config.fila_en === "cada_linea";
     this.ocultar = new Set(config.ocultar || []);
     this.salida = ""; this.firmas = new Map(); this.ids = new Map(); this.ext = new Map();
+    this.mudo = 0; this.pendientes = new Set();
     this.prim = crearPrimitivas(this);
   }
 
@@ -95,6 +99,19 @@ class Programa {
     if (x.T === "Funcion") return { t: "function", r: this.firma(x.nombre), m: x.nmetodos() };
     if (x.T === "Primitiva") return { t: "function", r: x.fix ? "Fix" : x.nombre, m: x.fix ? 2 : 1 };     // ==(6) es un Base.Fix2: nameof da :Fix
     if (V.esEscalar(x)) return { t: V.tipo(x), e: true, v: [V.repr(x)] };
+    if (x.T === "Expr") {          // como trazar.jl: como la escribe el REPL, su identidad y su árbol (hasta 60 nodos)
+      const d = { t: "Expr", r: V.repr(x), id: this.unId(x) };
+      let cuenta = 0;
+      const arbol = y => {
+        if (++cuenta > 60) return null;
+        if (y.T !== "Expr") return { t: V.tipo(y), r: V.repr(y) };
+        const hs = y.args.a.map(arbol);
+        return hs.some(h => h === null) ? null : { h: y.head, r: V.repr(y), a: hs };
+      };
+      const a = arbol(x);
+      if (a) d.expr = a;
+      return d;
+    }
     if (x.T === "DataFrame") {          // como trazar.jl: la tabla, sus columnas y la identidad de cada una
       const n = x.cols.length ? V.largo(x.cols[0]) : 0;
       if (n > 30 || x.cols.length > 12) throw new NoSoportado("dibujar una tabla de más de 30 filas o 12 columnas");
@@ -138,13 +155,13 @@ class Programa {
     return V.repr(x);
   }
   foto() {
-    const ns = [...this.glob.keys()].filter(n => !this.oculto(n)).sort();
+    const ns = [...this.glob.keys()].filter(n => !this.oculto(n) && !this.pendientes.has(n)).sort();
     for (const n of ns) if (!this.orden.includes(n)) this.orden.push(n);
     this.orden.push(...this.enOrdenDeLectura([...this.locales.keys()].filter(n => !this.oculto(n) && !this.orden.includes(n))));
     const est = {}, orden = [];
     for (const n of this.orden) {
       if (this.locales.has(n) && !this.oculto(n)) { const d = this.describe(this.locales.get(n)); d.local = true; est[n] = d; orden.push(n); }
-      else if (this.glob.has(n) && !this.oculto(n)) { est[n] = this.describe(this.glob.get(n)); orden.push(n); }
+      else if (this.glob.has(n) && !this.oculto(n) && !this.pendientes.has(n)) { est[n] = this.describe(this.glob.get(n)); orden.push(n); }
     }
     return [est, orden];
   }
@@ -183,12 +200,15 @@ class Programa {
   }
 
   // ── Los momentos de la traza (los mismos que trazar.jl) ────────────────
-  va(l) { this.actual = l; }
-  paso(l, sc) { const locs = this.locs(sc); this.ponLocales(locs); if (this.porLinea) this.fila(locs); this.anota({ linea: l, tipo: "linea" }); }
-  cabecera(l, sc) { this.vueltas.set(l, (this.vueltas.get(l) || 0) + 1); this.ponLocales(this.locs(sc)); this.anota({ linea: l, tipo: "vuelta", vuelta: this.vueltas.get(l) }); }
-  finVuelta(l, sc) { const locs = this.locs(sc); this.ponLocales(locs); if (!this.porLinea) this.fila(locs); }
-  finBucle(l, sc) { this.ponLocales(this.locs(sc)); this.anota({ linea: l, tipo: "fin", vuelta: this.vueltas.get(l) || 0 }); this.vueltas.delete(l); }
+  // mudo > 0: el código que corre no lo ha reescrito trazar.jl (el cuerpo de una macro, una función definida con
+  // eval): no deja pasos ni marcos. Una función del programa a la que llame sí los deja (llamaPrograma)
+  va(l) { if (!this.mudo) this.actual = l; }
+  paso(l, sc) { if (this.mudo) return; const locs = this.locs(sc); this.ponLocales(locs); if (this.porLinea) this.fila(locs); this.anota({ linea: l, tipo: "linea" }); }
+  cabecera(l, sc) { if (this.mudo) return; this.vueltas.set(l, (this.vueltas.get(l) || 0) + 1); this.ponLocales(this.locs(sc)); this.anota({ linea: l, tipo: "vuelta", vuelta: this.vueltas.get(l) }); }
+  finVuelta(l, sc) { if (this.mudo) return; const locs = this.locs(sc); this.ponLocales(locs); if (!this.porLinea) this.fila(locs); }
+  finBucle(l, sc) { if (this.mudo) return; this.ponLocales(this.locs(sc)); this.anota({ linea: l, tipo: "fin", vuelta: this.vueltas.get(l) || 0 }); this.vueltas.delete(l); }
   cond(l, nodo, v, sc) {
+    if (this.mudo) return;
     const locs = this.locs(sc); this.ponLocales(locs);
     const valor = v.T === "Bool" ? (v.v ? "true" : "false") : V.repr(v);
     this.anota({ linea: l, tipo: "condicion", cond: { texto: this.escribe(nodo), valores: this.escribe(nodo, sc), valor } });
@@ -201,6 +221,7 @@ class Programa {
     this.anota({ linea: l, tipo: "llamada", funcion: f.nombre });
   }
   sale(v) {
+    if (this.mudo) return v;
     const m = this.pila[this.pila.length - 1];
     this.anota({ linea: this.actual, tipo: "devuelve", funcion: m.nombre, desde: m.desde, valor: this.corto(v) });
     this.pila.pop(); this.actual = m.desde;
@@ -247,7 +268,7 @@ class Programa {
   ejecuta(raiz) {
     this.pasos.push({ linea: null, tipo: "inicio", estado: {}, orden: [], salida: "", nfilas: 0 });
     try {
-      for (const st of hijos(raiz)) this.sentencia(st, 0, null);
+      for (const st of hijos(raiz)) { this.pendientes.clear(); this.sentencia(st, 0, null); }
     } catch (e) {
       if (e instanceof NoSoportado || e instanceof ErrorSintaxis) throw e;
       let texto;
@@ -310,7 +331,14 @@ class Programa {
         this.paso(l, sc);
         return NADA;
       }
-      case "macro_definition": case "module_definition": throw new NoSoportado(n.type);
+      case "macro_definition": {
+        if (nivel !== 0) throw new NoSoportado("definir una macro dentro de un bloque");
+        this.va(l);
+        this.defineMacro(n);
+        this.paso(l, sc);
+        return NADA;
+      }
+      case "module_definition": throw new NoSoportado(n.type);
       case "const_statement": throw new NoSoportado("const");
     }
     if (final) { const v = this.valor(n, sc); return n.type === "local_statement" || n.type === "global_statement" ? NADA : v; }
@@ -572,7 +600,7 @@ class Programa {
 
   // ── Funciones del programa ─────────────────────────────────────────────
   esDefCorta(n) { const izq = hijos(n)[0]; return izq && (izq.type === "call_expression" || (izq.type === "where_expression")); }
-  defineFuncion(n, nivel, sc) {
+  defineFuncion(n, nivel, sc, mudo = false) {
     const l = linea(n);
     let llamada, cuerpo;
     if (n.type === "function_definition") {
@@ -633,6 +661,16 @@ class Programa {
     const deJulia = !kw.length && !params.some(p => p.defecto) ? (op || nombre) + "(" + params.map(p => (p.nombre || "") + (p.tipo && p.tipo !== "Any" ? "::" + p.tipo : "")).join(", ") + ")" + donde : null;
     const met = { params, kw, cuerpo, linea: l, firma, deJulia };
     if (vars) met.vars = vars;
+    if (mudo) {          // definida con eval: trazar.jl no la reescribe y no apunta su firma
+      if (op || vars) throw new NoSoportado("definir con eval un método con where o para un operador");
+      met.mudo = true;
+      let f = this.glob.get(nombre);
+      if (f && f.T === "Tipo") throw new NoSoportado("definir con eval un constructor");
+      if (!f || f.T !== "Funcion") f = nuevaFuncion(nombre);
+      this.agregaMetodo(f, met);
+      this.glob.set(nombre, f);
+      return f;
+    }
     if (op) {
       if (nivel > 0) throw new NoSoportado("añadir un método a " + op + " dentro de otro bloque");
       const propio = t => t && this.prim.esTipoPropio((/^(\w+)/.exec(t) || [])[1]);
@@ -671,6 +709,11 @@ class Programa {
     for (const k of kwargs.keys()) if (!met.kw.some(p => p.nombre === k)) throw new ErrorJulia("MethodError: no method matching " + f.nombre + "(" + args.map(a => "::" + V.tipo(a)).join(", ") + "; " + k + "::" + V.tipo(kwargs.get(k)) + ")");
     // Julia pone primero los argumentos con nombre (así queda la función por dentro)
     const nombres = met.kw.map(p => p.nombre).concat(met.params.map(p => p.nombre).filter(Boolean));
+    if (met.mudo) return this.ejecutaMudo(met.cuerpo, amb);
+    const mudo = this.mudo; this.mudo = 0;
+    try { return this.llamaTrazada(f, met, amb, nombres); } finally { this.mudo = mudo; }
+  }
+  llamaTrazada(f, met, amb, nombres) {
     this.entra(f, met, met.linea, amb, nombres);
     const cuerpo = met.cuerpo;
     try {
@@ -710,10 +753,11 @@ class Programa {
         return this.busca(n.text, sc);
       }
       case "parenthesized_expression": return this.valor(hijos(n)[0], sc);
-      case "quote_expression": {        // :nota
-        const [c] = hijos(n);
-        if (!c || c.type !== "identifier") throw new NoSoportado("esta expresión con :");
-        return { T: "Symbol", v: c.text };
+      case "quote_expression": {        // :nota, :*, :(a + b * 2)
+        const c = n.namedChild(0);
+        if (c && (c.type === "identifier" || c.type === "operator")) return { T: "Symbol", v: c.text };
+        if (c && c.type === "parenthesized_expression") return this.aExpr(c, sc, true);
+        throw new NoSoportado("esta expresión con :");
       }
       case "assignment": return this.asignacion(n, sc);
       case "compound_assignment_expression": {
@@ -797,6 +841,12 @@ class Programa {
           if (i < 0) throw new ErrorJulia("FieldError: type NamedTuple has no field `" + c + "`, available fields: " + x.nombres.map(m => "`" + m + "`").join(", "));
           return x.a[i];
         }
+        if (x.T === "Expr") {
+          if (c === "head") return EX.sym(x.head);
+          if (c === "args") return x.args;
+          throw new ErrorJulia("FieldError: type Expr has no field `" + c + "`, available fields: `head`, `args`");
+        }
+        if (x.T === "QuoteNode" && c === "value") return x.v;
         if (x.T === "Pair") { if (c === "first") return x.a; if (c === "second") return x.b; throw new ErrorJulia("FieldError: type Pair has no field `" + c + "`, available fields: `first`, `second`"); }
         throw new NoSoportado("el campo ." + c + " de un " + V.tipo(x));
       }
@@ -854,6 +904,8 @@ class Programa {
     if (izq.type === "field_expression") {      // f.faltas = 2: solo en un mutable struct
       const [obj, campo] = hijos(izq), x = this.valor(obj, sc);
       if (x.T === "DataFrame" || x.T === "FilaDF") { this.prim.ponColumna(x, campo.text, v); return; }
+      if (x.T === "Expr" && campo.text === "head" && v.T === "Symbol") { x.head = v.v; return; }
+      if (x.T === "Expr") throw new NoSoportado("cambiar el campo " + campo.text + " de una expresión");
       if (x.T !== "Struct") throw new NoSoportado("cambiar el campo de un " + V.tipo(x));
       this.prim.ponCampo(x, campo.text, v);
       return;
@@ -921,6 +973,18 @@ class Programa {
       return y;
     }
     if (op === "=") return this.asignacion(n, sc);
+    // a ^ b ^ c es a ^ (b ^ c), y a => b => c es a => (b => c); tree-sitter los lee al revés
+    const cadena = this.cadenaDerecha(n);
+    if (cadena) {
+      const vals = cadena.map(c => this.valor(c, sc));
+      let r = vals[vals.length - 1];
+      for (let k = vals.length - 2; k >= 0; k--) {
+        const ult = cadena[k + 1];
+        if (op === "^" && k === vals.length - 2 && ult.type === "unary_expression" && opDe(ult) === "-" && hijos(ult)[0].type === "integer_literal" && vals[k].T === "Int64") r = this.prim.binaria("^", F(Number(vals[k].v)), r);
+        else r = this.prim.binaria(op, vals[k], r);
+      }
+      return r;
+    }
     if (op === ".=") { const v = this.valor(b, sc); this.prim.difundeAsignacion(this.valor(a, sc), v); return v; }
     if (op === "->" ) throw new NoSoportado("->");
     if (op === "|>") { const x = this.valor(a, sc), f = this.valor(b, sc); return this.aplica(f, [x], new Map()); }
@@ -952,6 +1016,17 @@ class Programa {
     if (op.startsWith(".") && op.length > 1 && op !== "...") return this.prim.difunde(op.slice(1), [x, y]);
     if (op === "^" && b.type === "unary_expression" && opDe(b) === "-" && hijos(b)[0].type === "integer_literal" && x.T === "Int64") return this.prim.binaria("^", F(Number(x.v)), y);
     return this.prim.binaria(op, x, y);
+  }
+  // los operandos de una cadena a ^ b ^ c (o =>, &&, ||) que tree-sitter ha leído como (a ^ b) ^ c
+  cadenaDerecha(n) {
+    const op = opDe(n);
+    if (!["^", "=>", "&&", "||"].includes(op)) return null;
+    let iz = hijos(n)[0];
+    if (iz.type !== "binary_expression" || opDe(iz) !== op) return null;
+    const xs = [hijos(n)[1]];
+    while (iz.type === "binary_expression" && opDe(iz) === op) { xs.unshift(hijos(iz)[1]); iz = hijos(iz)[0]; }
+    xs.unshift(iz);
+    return xs;
   }
   argumentos(lista, sc) {
     const args = [], kw = new Map();
@@ -1026,6 +1101,7 @@ class Programa {
   aplica(f, args, kw) {
     if (f.T === "Funcion") return f.anonima ? f.llama(args) : this.llamaPrograma(f, args, kw);
     if (f.T === "Primitiva") return f.f(args, kw);
+    if (f.T === "Tipo" && ["Expr", "QuoteNode", "Symbol"].includes(f.nombre)) return this.prim.funcion(f.nombre).f(args, kw);
     if (f.T === "Tipo") {
       const def = this.prim.tipos.get(f.nombre);
       const e = def && def.fn ? this.eligeMetodo(def.fn, args) : null;
@@ -1082,9 +1158,250 @@ class Programa {
     }
     return res;
   }
+  // ── El código como dato (capítulo 20) ─────────────────────────────────
+  // Un trozo del árbol de tree-sitter como la Expr que lee Julia. interp: dentro de :( … ), $x mete el valor
+  // de x (en el ámbito sc); en los argumentos de una macro y en Meta.parse, $ no se puede usar.
+  aExpr(n, sc, interp) {
+    const E = EX.nuevaExpr, Sy = EX.sym, ex = c => this.aExpr(c, sc, interp);
+    const no = que => { throw new NoSoportado(que + " dentro de una expresión :( … )"); };
+    switch (n.type) {
+      case "identifier": case "operator": return Sy(n.text);
+      case "integer_literal": case "float_literal": case "boolean_literal": case "character_literal": return this.valor(n, sc);
+      case "string_literal":
+        if (n.namedChildren.some(c => c.type === "string_interpolation")) no("un texto con $");
+        return this.valor(n, sc);
+      case "parenthesized_expression": {
+        const cs = partesIndice(n);          // :(==): el operador solo es un nodo «operator»
+        if (cs.length !== 1) no("un bloque ( ; )");
+        return ex(cs[0]);
+      }
+      case "interpolation_expression": {
+        if (!interp) throw new NoSoportado("$ fuera de una expresión :( … )");
+        let c = n.namedChild(0);
+        if (c.type === "parenthesized_expression" && hijos(c).length === 1) c = hijos(c)[0];
+        const v = this.valor(c, sc);
+        if (!EX.cabeEnExpr(v)) throw new NoSoportado("meter un " + V.tipo(v) + " dentro de una expresión con $");
+        return v;
+      }
+      case "binary_expression": {
+        if (pegado(n)) no("esta división pegada");
+        const op = opDe(n), [a, b] = hijos(n);
+        if (["<:", ">:", "::", "->"].includes(op)) no("el operador " + op);
+        const cad = this.cadenaDerecha(n);
+        if (cad) {          // a ^ b ^ c: a ^ (b ^ c)
+          let r = ex(cad[cad.length - 1]);
+          for (let k = cad.length - 2; k >= 0; k--) r = op === "&&" || op === "||" ? E(op, [ex(cad[k]), r]) : E("call", [Sy(op), ex(cad[k]), r]);
+          return r;
+        }
+        if (op === "&&" || op === "||") return E(op, [ex(a), ex(b)]);
+        if (EX.precOp(op) === 7 && op !== "isa" || ["in"].includes(op)) {        // a < b < c: una :comparison
+          const partes = [b], ops = [op];
+          let iz = a;
+          while (iz.type === "binary_expression" && EX.precOp(opDe(iz)) === 7 && !["<:", ">:"].includes(opDe(iz))) { partes.unshift(hijos(iz)[1]); ops.unshift(opDe(iz)); iz = hijos(iz)[0]; }
+          partes.unshift(iz);
+          if (partes.length === 2) return E("call", [Sy(op), ex(a), ex(b)]);
+          const args = [];
+          partes.forEach((p, i) => { args.push(ex(p)); if (i < ops.length) args.push(Sy(ops[i])); });
+          return E("comparison", args);
+        }
+        if (!EX.precOp(op)) no("el operador " + op);
+        if (op === "+" || op === "*") {          // a + b + c: Julia la lee como +(a, b, c)
+          const xs = [b];
+          let iz = a;
+          while (iz.type === "binary_expression" && opDe(iz) === op && !pegado(iz)) { xs.unshift(hijos(iz)[1]); iz = hijos(iz)[0]; }
+          xs.unshift(iz);
+          return E("call", [Sy(op), ...xs.map(ex)]);
+        }
+        return E("call", [Sy(op), ex(a), ex(b)]);
+      }
+      case "unary_expression": {
+        const op = opDe(n), [a] = hijos(n);
+        if ((op === "-" || op === "+") && (a.type === "integer_literal" || a.type === "float_literal")) {      // -1 es un número
+          const v = this.valor(a, sc);
+          return op === "+" ? v : this.prim.unaria("-", v);
+        }
+        if (op === "-" && a.type === "juxtaposition_expression") {        // -2x es (-2) * x
+          const [k, y] = hijos(a);
+          if (["integer_literal", "float_literal"].includes(k.type) && hijos(a).length === 2) return E("call", [Sy("*"), this.prim.unaria("-", this.valor(k, sc)), ex(y)]);
+        }
+        if (!["-", "+", "!", "√"].includes(op)) no("el operador " + op);
+        return E("call", [Sy(op), ex(a)]);
+      }
+      case "juxtaposition_expression": {
+        const cs = hijos(n);
+        if (cs.length !== 2 || !["integer_literal", "float_literal"].includes(cs[0].type) || !["identifier", "parenthesized_expression"].includes(cs[1].type)) no("esta multiplicación sin *");
+        return E("call", [Sy("*"), this.valor(cs[0], sc), ex(cs[1])]);
+      }
+      case "call_expression": {
+        const f = n.namedChild(0), lista = n.namedChildren.find(c => c.type === "argument_list");
+        if (!lista || n.namedChildren.some(c => c.type === "do_clause")) no("esta llamada");
+        if (!["identifier", "operator", "interpolation_expression", "field_expression", "parenthesized_expression"].includes(f.type)) no("esta llamada");
+        const args = [];
+        for (let i = 0; i < lista.childCount; i++) {
+          const c = lista.child(i);
+          if (c.type === ";") no("una llamada con argumentos con nombre");
+          if (!c.isNamed || c.type === "line_comment") continue;
+          if (c.type === "named_argument" || c.type === "splat_expression") no("una llamada con argumentos con nombre o con ...");
+          args.push(ex(c));
+        }
+        return E("call", [ex(f), ...args]);
+      }
+      case "index_expression": {
+        const [obj, ind] = hijos(n);
+        if (ind.type !== "vector_expression") no("este índice");
+        return E("ref", [ex(obj), ...partesIndice(ind).map(ex)]);
+      }
+      case "field_expression": {
+        const [obj, campo] = hijos(n);
+        if (campo.type !== "identifier") no("este campo");
+        return E(".", [ex(obj), { T: "QuoteNode", v: Sy(campo.text) }]);
+      }
+      case "tuple_expression": case "open_tuple":
+        if (hijos(n).some(c => c.type === "named_field")) no("una tupla con nombre");
+        return E("tuple", hijos(n).map(ex));
+      case "vector_expression": return E("vect", hijos(n).map(ex));
+      case "range_expression": {
+        let cs = hijos(n);
+        if (cs.length === 2 && cs[0].type === "range_expression" && hijos(cs[0]).length === 2) cs = [...hijos(cs[0]), cs[1]];       // 1:2:9
+        if (cs.length < 2 || cs.length > 3) no("este rango");
+        return E("call", [Sy(":"), ...cs.map(ex)]);
+      }
+      case "quote_expression": {
+        const c = n.namedChild(0);
+        if (c && (c.type === "identifier" || c.type === "operator")) return { T: "QuoteNode", v: Sy(c.text) };
+        no("una expresión :( ) dentro de otra");
+      }
+      case "assignment": {
+        const [a, b] = hijos(n);
+        // f(x) = 2x: Julia guarda el cuerpo en un bloque, con la línea en que lo ha leído
+        if (a.type === "call_expression") return E("=", [ex(a), E("block", [{ T: "LineNumberNode", line: linea(n), file: this.leyendo || "programa.jl" }, ex(b)])]);
+        return E("=", [ex(a), ex(b)]);
+      }
+      case "compound_assignment_expression": {
+        const op = opDe(n), [a, b] = hijos(n);
+        if (EX.precOp(op) !== 1) no("el operador " + op);
+        return E(op, [ex(a), ex(b)]);
+      }
+    }
+    no("«" + n.type.replace(/_/g, " ") + "»");
+  }
+  // eval(x): ejecutar una expresión en el ámbito global, como Core.eval(Main, x). Se escribe como código, se lee
+  // con tree-sitter y se ejecuta como lo demás (los mismos errores, las mismas llamadas). Una función que se
+  // define así no la ha reescrito trazar.jl: no deja pasos ni marcos (mudo), y Julia no guarda su firma
+  // Las globales nuevas que crea eval no se ven en la foto hasta que el programa principal pasa a la sentencia
+  // siguiente (Julia 1.12+: cada sentencia corre en la «edad del mundo» en que empezó). @eval escrito en el
+  // programa principal (no dentro de una función) llama a Core.eval directamente y pone el mundo al día
+  evalua(x, sc = null, directo = false) {
+    if (x.T === "Symbol") return this.busca(x.v, sc);
+    if (x.T === "QuoteNode") return x.v;
+    if (x.T === "GlobalRef") return this.busca(x.name, null);
+    if (x.T !== "Expr") return x;
+    const nodo = this.leeCodigo(EX.codigoExpr(x));
+    const antes = new Set(this.glob.keys());
+    try {
+      if (!sc && (nodo.type === "function_definition" || (nodo.type === "assignment" && this.esDefCorta(nodo)))) return this.defineFuncion(nodo, 1, null, true);
+      const mudo = this.mudo; this.mudo = (this.mudo || 0) + 1;
+      try { return this.valor(nodo, sc); } finally { this.mudo = mudo; }
+    } finally {
+      if (directo && !this.pila.length && !this.mudo) this.pendientes.clear();
+      else for (const k of this.glob.keys()) if (!antes.has(k)) this.pendientes.add(k);
+    }
+  }
+  leeCodigo(texto) {
+    const arbol = this.parser.parse(texto);
+    const cs = hijos(arbol.rootNode);
+    if (arbol.rootNode.hasError || cs.length !== 1) throw new NoSoportado("volver a leer la expresión " + texto);
+    return cs[0];
+  }
+  // macro dime(ex) … end: una función que recibe código y devuelve código. trazar.jl no la reescribe
+  defineMacro(n) {
+    const sig = hijos(n).find(c => c.type === "signature"), llamada = sig && hijos(sig)[0];
+    if (!llamada || llamada.type !== "call_expression" || llamada.namedChild(0).type !== "identifier") throw new NoSoportado("esta forma de definir una macro");
+    const lista = llamada.namedChildren.find(c => c.type === "argument_list");
+    const params = hijos(lista).map(c => { if (c.type !== "identifier") throw new NoSoportado("este argumento de una macro"); return { nombre: c.text }; });
+    const nombre = "@" + llamada.namedChild(0).text;
+    let f = this.glob.get(nombre);
+    if (!f || !f.macro) { f = nuevaFuncion(nombre); f.macro = true; }
+    this.agregaMetodo(f, { params, kw: [], cuerpo: hijos(n).filter(c => c.type !== "signature"), linea: linea(n) });
+    this.glob.set(nombre, f);
+  }
+  argsMacro(n) {
+    const l = n.namedChildren.find(c => c.type === "macro_argument_list");
+    if (l) return hijos(l);
+    const a = n.namedChildren.find(c => c.type === "argument_list");      // @dime(x + 1)
+    return a ? hijos(a) : [];
+  }
+  // la expansión de una llamada a una macro del programa, con la higiene de Julia: lo que la macro protege con
+  // esc es del que la llama; el resto de nombres son globales de Main (Main.println)
+  expandeMacro(n, sc, mas = []) {
+    const nombre = "@" + hijos(hijos(n)[0])[0].text, f = this.glob.get(nombre);
+    const args = [...this.argsMacro(n), ...mas].map(a => this.aExpr(a, sc, false));
+    const met = f.metodos.find(m => m.params.length === args.length);
+    if (!met) throw new ErrorJulia("MethodError: no method matching " + nombre + "(::LineNumberNode, ::Module" + args.map(a => ", ::" + V.tipo(a)).join("") + ")");
+    const amb = { vars: new Map(met.params.map((p, i) => [p.nombre, args[i]])), padre: null, funcion: true, globales: new Set() };
+    const salida = this.salida, r = this.ejecutaMudo(met.cuerpo, amb);
+    // Julia expande la macro una vez, al leer el código; el laboratorio, cada vez que llega a la línea. Solo se nota
+    // si la macro escribe algo mientras trabaja
+    if (this.salida !== salida) throw new NoSoportado("una macro que escribe en la consola mientras se expande: Julia la expande una sola vez, al leer el código, y el laboratorio cada vez que llega a la línea");
+    return this.higiene(r);
+  }
+  higiene(x) {
+    if (x.T === "Symbol") return { T: "GlobalRef", mod: "Main", name: x.v };
+    if (x.T !== "Expr") return x;
+    const a = x.args.a;
+    if (x.head === "escape") { if (a.length !== 1) throw new NoSoportado("este esc"); return this.sinEscape(a[0]); }
+    if (x.head === "=" || EX.precOp(x.head) === 1) throw new NoSoportado("una macro que asigna a una variable sin esc: Julia le pone un nombre nuevo (higiene) que el laboratorio no imita");
+    if (["macrocall", "block", "quote", "function", "->", "let", "for", "while", "if", "kw", "parameters", "local", "global"].includes(x.head)) throw new NoSoportado("una macro que devuelve una expresión con :" + x.head);
+    if (x.head === ".") return EX.nuevaExpr(".", [this.higiene(a[0]), ...a.slice(1)]);
+    return EX.nuevaExpr(x.head, a.map(e => this.higiene(e)));
+  }
+  sinEscape(x) {
+    if (x.T !== "Expr") return x;
+    if (x.head === "escape") return this.sinEscape(x.args.a[0]);
+    return EX.nuevaExpr(x.head, x.args.a.map(e => this.sinEscape(e)));
+  }
+  // ejecutar la expansión donde está la llamada: los Main.x se buscan en las globales; si alguno coincide con
+  // una variable local de ese sitio, el laboratorio no sabe distinguirlos y lo dice
+  evaluaExpansion(x, sc) {
+    if (sc) {
+      const locs = new Set();
+      for (let s = sc; s; s = s.padre) { for (const k of s.vars.keys()) locs.add(k); if (s.funcion) break; }
+      const mira = e => { if (e.T === "GlobalRef" && locs.has(e.name)) throw new NoSoportado("una macro que usa " + e.name + " sin esc donde también hay una variable local " + e.name + ": Julia busca la global (higiene) y el laboratorio no lo imita"); if (e.T === "Expr") e.args.a.forEach(mira); };
+      mira(x);
+    }
+    if (x.T === "GlobalRef") return this.busca(x.name, null);
+    if (x.T !== "Expr") return this.evalua(x, sc);
+    const nodo = this.leeCodigo(EX.codigoExpr(x));
+    return this.valor(nodo, sc);
+  }
+  // el cuerpo de una macro o de una función definida con eval: corre sin dejar pasos (trazar.jl no lo reescribe)
+  ejecutaMudo(cuerpo, amb) {
+    this.mudo = (this.mudo || 0) + 1;
+    try {
+      let v = NADA;
+      for (let k = 0; k < cuerpo.length; k++) v = this.sentencia(cuerpo[k], 1, amb, k === cuerpo.length - 1 && cuerpo[k].type !== "return_statement");
+      return v;
+    } catch (e) {
+      if (e instanceof Retorno) return e.v;
+      throw e;
+    } finally { this.mudo--; }
+  }
   macro(n, sc) {
     const nombre = hijos(hijos(n)[0])[0]?.text;
-    const args = hijos(n.namedChildren.find(c => c.type === "macro_argument_list") || n);
+    const args = this.argsMacro(n);
+    const propia = this.glob.get("@" + nombre);
+    if (propia && propia.macro) return this.evaluaExpansion(this.expandeMacro(n, sc), sc);
+    if (nombre === "macroexpand" || nombre === "macroexpand1") {
+      // @macroexpand @suma x 10: tree-sitter da a @suma solo la x; para Julia, @suma se lleva toda la línea
+      if (!args.length || args[0].type !== "macrocall_expression") throw new NoSoportado("@" + nombre + " de algo que no es una llamada a una macro");
+      const m = hijos(hijos(args[0])[0])[0]?.text, f = this.glob.get("@" + m);
+      if (!f || !f.macro) throw new NoSoportado("@" + nombre + " de la macro @" + m + ": el laboratorio solo expande las macros que define el programa");
+      return this.expandeMacro(args[0], sc, args.slice(1));
+    }
+    if (nombre === "eval") {
+      if (args.length !== 1) throw new NoSoportado("@eval con varios argumentos");
+      return this.evalua(this.aExpr(args[0], sc, true), null, true);
+    }
     if (nombre === "show") {
       let v = NADA;
       for (const a of args) { v = this.valor(a, sc); this.salida += this.escribe(a) + " = " + V.repr(v) + "\n"; }

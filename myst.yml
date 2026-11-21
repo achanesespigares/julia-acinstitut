@@ -45,6 +45,7 @@ project:
         - file: capitulos/17-sistema-tipos.md
         - file: capitulos/18-despacho-multiple.md
         - file: capitulos/19-rendimiento.md
+        - file: capitulos/20-metaprogramacion.md
 site:
   template: book-theme
   options:

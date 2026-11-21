@@ -174,6 +174,28 @@ pre.tz-codigo{ margin:0; font:400 14px/1.85 var(--mono); overflow-x:auto; backgr
 .tz .puntero .et{ font:600 12.5px/1 var(--mono); color:#fff; background:var(--acento); padding:4px 7px; border-radius:4px; white-space:nowrap; }
 .tz .puntero .flecha{ width:0; height:0; border-left:6px solid transparent; border-right:6px solid transparent; border-top:8px solid var(--acento); }
 .tz .otro{ font:500 13.5px/1.4 var(--mono); white-space:pre-wrap; background:var(--fondo); padding:6px 8px; }
+.tz .ex{ display:flex; flex-direction:column; gap:6px; }      /* una expresión (Expr): su texto y su árbol */
+.tz .ex-r{ font:600 13.5px/1.35 var(--mono); white-space:pre-wrap; overflow-wrap:anywhere; background:var(--fondo); padding:5px 8px; }
+.tz .arbol{ overflow-x:auto; padding:2px 2px 4px; }
+.tz .arbol ul{ display:flex; justify-content:center; margin:0; padding:14px 0 0; position:relative; }
+.tz .arbol > ul{ padding-top:0; justify-content:flex-start; }
+.tz .arbol li{ list-style:none; position:relative; padding:14px 3px 0; display:flex; flex-direction:column; align-items:center; }
+.tz .arbol > ul > li{ padding-top:0; }
+.tz .arbol li::before, .tz .arbol li::after{ content:""; position:absolute; top:0; right:50%; width:50%; height:14px; border-top:1.5px solid var(--banda); }
+.tz .arbol li::after{ right:auto; left:50%; border-left:1.5px solid var(--banda); }
+.tz .arbol li:first-child::before, .tz .arbol li:last-child::after{ border:0 none; }
+.tz .arbol li:last-child::before{ border-right:1.5px solid var(--banda); border-radius:0 6px 0 0; }
+.tz .arbol li:first-child::after{ border-radius:6px 0 0 0; }
+.tz .arbol li:only-child::before{ border-top:0; border-radius:0; }
+.tz .arbol li:only-child::after{ display:none; }
+.tz .arbol > ul > li::before, .tz .arbol > ul > li::after{ display:none; }
+.tz .arbol ul ul::before{ content:""; position:absolute; top:0; left:50%; height:14px; border-left:1.5px solid var(--banda); }
+.tz .arbol .ai{ font:500 10px/1 var(--mono); color:var(--banda); margin-bottom:2px; }
+.tz .arbol .cz{ font:700 12px/1 var(--mono); color:#fff; background:var(--tinta); border-radius:4px; padding:4px 7px; white-space:nowrap; }
+.tz .arbol .hj{ font:600 13px/1 var(--mono); border:1.5px solid var(--tinta); background:#fff; border-radius:4px; padding:4px 7px; white-space:pre; }
+.tz .arbol .hj.sym{ color:var(--acento); border-color:var(--acento); }
+.tz .arbol .cambia{ background:var(--suave); box-shadow:0 0 0 2px var(--acento); }
+.tz .arbol .cz.cambia{ background:var(--acento); }
 .tz-cond{ border:1.5px dashed var(--filete); border-radius:8px; padding:10px 12px; display:flex; flex-direction:column; gap:6px; font:500 15px/1.35 var(--mono); }
 .tz-cond .res{ align-self:flex-start; font:700 13px/1 var(--titulo); padding:5px 9px; border-radius:999px; color:#fff; }
 .tz-cond .res.si{ background:var(--si); } .tz-cond .res.no{ background:var(--acento); }
@@ -388,6 +410,7 @@ const EJEMPLOS = [
   { nombre: "Medidas con ruido", codigo: "using Statistics, Random\nRandom.seed!(3)\nmedidas = 20.0 .+ 0.5 .* randn(8)\nmedia = mean(medidas)\ndesviacion = std(medidas)\nmargen = desviacion / sqrt(8)" },
   { nombre: "Tipos con parámetros", codigo: "struct Punto{T<:Real}\n    x::T\n    y::T\nend\nque_es(p::Punto{Int64}) = \"un punto de enteros\"\nque_es(p::Punto) = \"un punto de otro tipo\"\np = Punto(3, 4)\nq = Punto(1.5, 2.0)\nque_es(p)\nque_es(q)\ntypeof(q)" },
   { nombre: "Piedra, papel o tijera", codigo: "abstract type Jugada end\nstruct Piedra <: Jugada end\nstruct Papel <: Jugada end\nstruct Tijera <: Jugada end\ngana(a::Jugada, b::Jugada) = false\ngana(a::Piedra, b::Tijera) = true\ngana(a::Tijera, b::Papel) = true\ngana(a::Papel, b::Piedra) = true\ngana(Piedra(), Tijera())\ngana(Tijera(), Piedra())\ngana(Papel(), Papel())" },
+  { nombre: "Un polinomio hecho código", codigo: "coefs = [1, -3, 2]\np = :(0)\nfor (k, c) in enumerate(coefs)\n    p = :($p + $c * x ^ $(k - 1))\nend\np\nx = 2\neval(p)\nx = 0.5\neval(p)", tabla: "k, c, p" },
   { nombre: "Contar los pasos", codigo: "v = [3, 8, 15, 21, 30, 42, 57, 64, 77, 88]\nx = 64\nizq = 1\nder = length(v)\npasos = 0\nwhile izq <= der\n    pasos += 1\n    m = (izq + der) ÷ 2\n    if v[m] == x\n        break\n    elseif v[m] < x\n        izq = m + 1\n    else\n        der = m - 1\n    end\nend\npasos", tabla: "pasos, izq, m, der" },
   { nombre: "Un bucle que suma", codigo: "notas = [9.0, 6.5, 4.0, 7.5]\ntotal = 0.0\nfor i in eachindex(notas)\n    if notas[i] >= 5\n        total += notas[i]\n    end\nend\ntotal", tabla: "i, notas[i], total" },
   { nombre: "Una función", codigo: "function media(v)\n    s = 0.0\n    for x in v\n        s += x\n    end\n    return s / length(v)\nend\n\nm = media([2, 4, 9])\nprintln(\"La media es \", m)" },
@@ -561,9 +584,36 @@ function dibujaTraza(el, C, D) {
     }
     return " " + code("bar") + " dibuja " + barrasTxt(n) + ": una por dato, con la altura del dato.";
   }
+  // capítulo 20: lo que hace cada $ de la línea (mete en la expresión el valor de ahora, no el nombre), y cómo se
+  // ha hecho la expresión (Expr(…), Meta.parse)
+  function exprCreacion(lt, p, prev) {
+    const q = prev && prev.estado ? prev : p;           // los $ meten los valores de antes de la línea
+    const mf = q.marcos && q.marcos.length ? q.marcos[q.marcos.length - 1].vars : null, vale = n => (mf && mf[n]) || q.estado[n];
+    const ds = [...lt.matchAll(/\$(\w+)|\$\(([^()]*(?:\([^()]*\))?[^()]*)\)/g)].map(m => m[1] ? { t: "$" + m[1], n: m[1] } : { t: "$(" + m[2] + ")" });
+    let s = "";
+    if (ds.length) {
+      const partes = ds.map(d => d.n && vale(d.n) ? code(d.t) + " mete " + code(muestra(vale(d.n))) : code(d.t) + " mete el resultado de " + code(d.t.slice(2, -1)));
+      s += " " + (ds.length === 1 ? "El " + partes[0] + (ds[0].n && vale(ds[0].n) ? ", el valor que tiene " + code(ds[0].n) + " en ese momento" : " en ese momento")
+        : "Cada " + code("$") + " mete el valor que tiene la variable en ese momento: " + partes.slice(0, -1).join(", ") + " y " + partes[partes.length - 1]) + ". No mete el nombre, sino su valor: es la <b>interpolación</b>.";
+    }
+    if (/\bExpr\(/.test(lt)) s += " Se ha hecho pieza a pieza con " + code("Expr(cabeza, argumentos…)") + ".";
+    if (/\bMeta\.parse\(/.test(lt)) s += " " + code("Meta.parse") + " lee el texto como lo leería Julia y devuelve la expresión, sin ejecutarla.";
+    return s;
+  }
+  const contieneExpr = (e, r) => !!e && (e.r === r || (e.a || []).some(h => contieneExpr(h, r)));
   function quees(v) {
     if (v.plot) return "un gráfico (" + code("Plots.Plot") + "): un objeto que guarda " + (nSeries(v) === 1 ? "una serie de datos y cómo dibujarla" : nSeries(v) ? seriesTxt(nSeries(v)) + " de datos y cómo dibujarlas" : "cómo dibujarse, aún sin datos") + " (colores, títulos, ejes)";
     if (v.t === "function") return "una función: guarda sus instrucciones, que no se ejecutan hasta que alguien la llame";
+    if (v.t === "Expr") {
+      const e = v.expr, n = e ? e.a.length : 0;
+      let s = "una expresión (" + code("Expr") + "): código guardado como dato, todavía sin ejecutar";
+      if (!e) return s;
+      s += ". Su cabeza (" + code("head") + ") es " + code(":" + e.h) + " y tiene " + n + (n === 1 ? " argumento" : " argumentos") + " (" + code("args") + ")";
+      if (e.h === "call" && e.a[0] && e.a[0].t === "Symbol") s += ": la función que se llama, " + code(e.a[0].r) + (n > 1 ? ", y " + (n === 2 ? "el dato al que se aplica" : "los " + (n - 1) + " datos a los que se aplica") : "");
+      const subs = e.a.map((x, k) => [x, k]).filter(([x]) => x.a);
+      if (subs.length) s += ". " + (subs.length === 1 ? "El argumento " + (subs[0][1] + 1) + " es otra expresión, " + code(subs[0][0].r) : "Los argumentos " + subs.map(([, k]) => k + 1).join(" y ") + " son otras expresiones") + ": una expresión dentro de otra, como las ramas de un árbol";
+      return s;
+    }
     if (v.df) return "una tabla (" + code("DataFrame") + ") de " + longitud(v) + (longitud(v) === 1 ? " fila" : " filas") + " y " + v.cols.length + (v.cols.length === 1 ? " columna" : " columnas") + (v.cols.length ? ": " + v.cols.map(code).join(", ") : "");
     if (v.t === "Nothing") return "que vale " + code("nothing") + ": el valor de Julia para decir «aquí no hay nada». Su tipo es " + code("Nothing");
     if (v.t === "Missing") return "que vale " + code("missing") + ": un dato que falta. Su tipo es " + code("Missing");
@@ -762,6 +812,9 @@ function dibujaTraza(el, C, D) {
         if (cnt) extra += " " + code(cnt[1] + "(" + cnt[2] + ")") + " es una función de una sola pregunta, «¿es " + ({ "==": "igual a", "!=": "distinto de", "≠": "distinto de", "<": "menor que", ">": "mayor que", "<=": "menor o igual que", "≤": "menor o igual que", ">=": "mayor o igual que", "≥": "mayor o igual que" })[cnt[1]] + " " + esc(cnt[2].trim()) + "?», y " + code("count") + " cuenta cuántos elementos de " + code(cnt[3].trim()) + " dicen que sí.";
         if (b.plot) extra = barrasTxtDe(lt, b.plot.sp[0]);
         if (b.plot && !p.grafico) extra += " Como la línea es una asignación, Julia no lo dibuja: el gráfico ya existe en la memoria, pero aún no se ve.";
+        if (b.t === "Expr") extra += exprCreacion(lt, p, prev);
+        if (b.t === "function" && n.startsWith("@")) { frases.push("Se define la macro " + code(n) + ": una función especial que recibe <b>código</b>, no valores, y devuelve código. Cuando una línea la use, Julia ejecutará primero la macro y luego el código que devuelva, en lugar de lo escrito."); continue; }
+        if (b.t === "function" && /@eval\b|\beval\(/.test(lt)) { frases.push("Se crea " + code(n) + ", una función que no está escrita en el programa con ese nombre: la ha definido " + code(/@eval/.test(lt) ? "@eval" : "eval") + " con el código que el programa acaba de construir. El programa escribe código, y ese código se ejecuta."); continue; }
         frases.push("Se crea " + code(n) + ", " + quees(b) + "." + extra + (b.local && !mp ? " Es una variable local del bucle." : "")); continue;
       }
       if (b.id && a.id === b.id && !igual(a, b) && hechos.some(m => ahora[m] && ahora[m].id === b.id)) {
@@ -796,6 +849,13 @@ function dibujaTraza(el, C, D) {
         const lt = L[p.linea - 1] || "";
         if (/^\s*\w+!\(/.test(lt) && !new RegExp("^\\s*\\w+!\\(\\s*" + n + "\\b").test(lt)) fr.push("La línea no nombra a " + code(n) + ": una función como " + code((lt.match(/^\s*(\w+!)/) || [])[1]) + " sin un gráfico delante cambia el <b>gráfico actual</b>, el último que se ha hecho o cambiado, y ese es " + code(n) + ".");
         frases.push(...fr); hechos.push(n); continue;
+      }
+      if (b.t === "Expr" && !igual(a, b)) {          // una expresión que cambia, o un nombre que pasa a otra
+        const lt = L[p.linea - 1] || "";
+        if (a.t === "Expr" && a.id === b.id) frases.push("Cambia " + code(n) + " por dentro: ahora es " + code(b.r) + ". Sigue siendo la misma expresión, el mismo objeto: una " + code("Expr") + " se puede cambiar, como un vector, y " + code(n + ".args") + " es su vector de argumentos.");
+        else if (a.t === "Expr") frases.push("El nombre " + code(n) + " pasa a señalar una expresión <b>nueva</b>, " + code(b.r) + (contieneExpr(b.expr, a.r) ? ", que lleva dentro la de antes, " + code(a.r) + ": la expresión crece hacia arriba, con la anterior como rama" : "") + "." + exprCreacion(lt, p, prev));
+        else frases.push(code(n) + " valía " + esc(muestra(a)) + " y ahora es " + quees(b) + "." + exprCreacion(lt, p, prev));
+        hechos.push(n); continue;
       }
       if (a.struct && b.struct && a.t === b.t && !igual(a, b)) {       // un objeto que cambia: campo a campo
         const fr = b.el.map((e, i) => igual(e.v, a.el[i].v) ? null : e.v.e && a.el[i].v.e ? "Cambia " + code(n + "." + e.nombre) + ": valía " + esc(a.el[i].v.v[0]) + " y ahora vale " + esc(e.v.v[0]) + "."
@@ -883,17 +943,28 @@ function dibujaTraza(el, C, D) {
       const esTabla = /^(\d+×\d+ DataFrame|DataFrameRow)$/.test(nueva[0]);
       const esUniforme = nueva.length === 2 && /^UniformScaling\{/.test(nueva[0]);
       const esVector = nueva.length > 1 && /^\d+-element/.test(nueva[0]), esMatriz = nueva.length > 1 && /^\d+×\d+ /.test(nueva[0]), esVista = / view\(/.test(nueva[0]);
-      const cola = esUniforme ? ": la identidad, que Julia escribe " + code(nueva[1]) + " porque no tiene un tamaño fijo: toma el de la matriz con la que opera." : esTabla ? (nueva.length > 1 ? ": " + (nueva[0] === "DataFrameRow" ? "una fila de la tabla" : "la tabla entera") + ", con una línea de título, los nombres y los tipos de las columnas, y una fila por línea con su número." : ": " + muestra1 + ".") : esVista ? ": una <b>vista</b> (" + code("view") + ") de las casillas que han cambiado, con una cabecera que dice de dónde salen." :
+      const cola = /^:\(/.test(nueva[0]) && nueva.length === 1 ? ": " + muestra1 + ". Una expresión se escribe entre " + code(":(") + " y " + code(")") + ": es código, no un resultado." : esUniforme ? ": la identidad, que Julia escribe " + code(nueva[1]) + " porque no tiene un tamaño fijo: toma el de la matriz con la que opera." : esTabla ? (nueva.length > 1 ? ": " + (nueva[0] === "DataFrameRow" ? "una fila de la tabla" : "la tabla entera") + ", con una línea de título, los nombres y los tipos de las columnas, y una fila por línea con su número." : ": " + muestra1 + ".") : esVista ? ": una <b>vista</b> (" + code("view") + ") de las casillas que han cambiado, con una cabecera que dice de dónde salen." :
         esMatriz ? ": la matriz entera, con una línea de cabecera (filas × columnas y su tipo) y una fila de la matriz por línea." :
         esVector ? ": el vector entero, con una línea de cabecera (su tamaño y su tipo) y una casilla por línea." : ": " + muestra1 + ".";
       const bang = (linea.match(/^(\w+!)\(/) || [])[1];
-      if (/^Random\.seed!\(/.test(linea)) frases.push(code(linea) + " fija la <b>semilla</b>: desde aquí, los números «al azar» son siempre los mismos, en cualquier ordenador. Devuelve el generador de números al azar, y Julia lo muestra como " + code("TaskLocalRNG()") + ".");
+      const mac = linea.match(/^@(\w+)\s*(.*)$/), propia = mac && p.estado["@" + mac[1]];
+      const ev = linea.match(/\beval\((\w+)\)/), evx = ev && p.estado[ev[1]] && p.estado[ev[1]].t === "Expr" ? p.estado[ev[1]] : null;
+      if (/^@macroexpand1?\b/.test(linea)) frases.push(code("@macroexpand") + " no ejecuta la macro: enseña el código en que se convierte la llamada, " + muestra1 + ". Lo que la macro protege con " + code("esc") + " queda tal cual: es código del que la llama. Los demás nombres llevan delante " + code("Main.") + ": la macro los busca en el programa principal, se use donde se use. Es la <b>higiene</b> de las macros.");
+      else if (propia) frases.push("La macro " + code("@" + mac[1]) + " recibe el código " + code(mac[2]) + " sin calcularlo y devuelve código nuevo, que Julia ejecuta en lugar de la línea. Ese código escribe en la consola " + muestra1 + ".");
+      else if (/^dump\(/.test(linea)) frases.push(code("dump") + " escribe la expresión por dentro, nivel a nivel: cada " + code("Expr") + " con su cabeza (" + code("head") + ") y sus argumentos (" + code("args") + "), y cada hoja con su tipo. Es el mismo árbol que se ve en la memoria.");
+      else if (ev) frases.push(code("eval") + " ejecuta " + (evx ? "la expresión " + code(evx.r) : code(ev[1])) + " como si su código estuviera escrito aquí, en el programa principal, con los valores de ahora, y Julia muestra el resultado: " + muestra1 + ".");
+      else if (/^Random\.seed!\(/.test(linea)) frases.push(code(linea) + " fija la <b>semilla</b>: desde aquí, los números «al azar» son siempre los mismos, en cualquier ordenador. Devuelve el generador de números al azar, y Julia lo muestra como " + code("TaskLocalRNG()") + ".");
       else if (/\.[-+*\/^]=/.test(linea)) frases.push("Una operación como " + code(linea.match(/\.[-+*\/^]=/)[0]) + " cambia las casillas igual que " + code(".=") + ", pero para la consola no es una asignación: Julia muestra su resultado" + cola);
       else if (/^@show\b/.test(linea)) frases.push(code("@show") + " escribe en la consola la expresión y su valor: " + muestra1 + ".");
       else if (/^print(ln)?\(/.test(linea)) frases.push(code(linea.match(/^print(ln)?/)[0]) + " escribe en la consola " + muestra1 + (/^println/.test(linea) ? ", y salta de línea." : "."));
       else if (/^[\w.!]+$/.test(linea)) frases.push("Escribir solo " + code(linea) + " hace que Julia muestre su valor en la consola" + cola);
       else if (bang && esVector) frases.push(code(bang) + " devuelve el vector modificado, y Julia lo muestra en la consola" + cola);
-      else if (!/(^|[^=!<>≈])=($|[^=])/.test(linea.replace(/"[^"]*"/g, ""))) frases.push("La línea es una expresión: Julia calcula " + code(linea) + " y muestra su valor en la consola" + cola);
+      else if (!/(^|[^=!<>≈])=($|[^=])/.test(linea.replace(/"[^"]*"/g, ""))) {
+        frases.push("La línea es una expresión: Julia calcula " + code(linea) + " y muestra su valor en la consola" + cola);
+        // una función definida con eval no tiene firma escrita en el programa: el visualizador no entra en ella
+        const fe = (linea.match(/^(\w+!?)\(/) || [])[1], fv = fe && p.estado[fe];
+        if (fv && fv.t === "function" && !/\(/.test(fv.r) && P.slice(0, P.indexOf(p)).some(x => x.estado && x.estado[fe]) && !P.some(x => x.tipo === "llamada" && x.funcion === fe)) frases.push("El código de " + code(fe) + " no está escrito en el programa: lo construyó el propio programa mientras corría, y por eso el visualizador no puede entrar en la función.");
+      }
       else frases.push("Julia escribe en la consola " + muestra1 + ".");
     }
     if (p.grafico) {             // la línea muestra un gráfico: Julia lo dibuja
@@ -943,6 +1014,7 @@ function dibujaTraza(el, C, D) {
     if (v.plot) return '<span class="tipo" title="' + esc(v.t) + '">' + esc(v.t) + '</span><span class="lon">' + seriesTxt(nSeries(v)) + "</span>";
     if (v.d) return '<span class="tipo">' + esc(v.t) + '</span><span class="lon">' + v.d.join(" × ") + " (filas × columnas)</span>";
     if (v.df) return '<span class="tipo">DataFrame</span><span class="lon">' + longitud(v) + " × " + v.cols.length + " (filas × columnas)</span>";
+    if (v.expr) return '<span class="tipo">Expr</span><span class="lon">' + v.expr.a.length + (v.expr.a.length === 1 ? " argumento" : " argumentos") + '</span><span class="loc">mutable</span>' + (v.local ? '<span class="loc">local</span>' : "");
     const lon = v.dict ? v.k.length + (v.k.length === 1 ? " pareja" : " parejas") : v.e || v.t === "function" ? (v.t === "function" && v.m > 1 ? v.m + " métodos" : "") : v.tupla ? v.el.length + (v.el.length && v.el.every(e => e.nombre) ? (v.el.length === 1 ? " campo" : " campos") : v.el.length === 1 ? " elemento" : " elementos") : v.v ? "longitud " + longitud(v).toLocaleString("es-ES") : "";
     return '<span class="tipo" title="' + esc(v.t) + '">' + esc(v.t === "function" ? "función" : corta(v.t)) + "</span>" + (lon ? '<span class="lon">' + lon + "</span>" : "") + (v.mutable ? '<span class="loc">mutable</span>' : "") + (v.local ? '<span class="loc">local</span>' : "");
   }
@@ -984,7 +1056,21 @@ function dibujaTraza(el, C, D) {
     });
     return h + "</div>";
   }
+  // una expresión (capítulo 20): el árbol que guarda Julia. Cada nodo, su cabeza (head); debajo, sus args en
+  // orden, con su número (ex.args[3]); las hojas, símbolos (en color) y datos. Si la expresión es la misma de
+  // antes (el mismo objeto) y ha cambiado por dentro, se marca lo que cambia
+  function arbolExpr(v, a) {
+    const viejo = a && a.expr && a.id === v.id ? a.expr : null;
+    const nodo = (x, y, i) => {
+      const idx = i != null ? '<span class="ai">' + (i + 1) + "</span>" : "";
+      if (!x.a) return "<li>" + idx + '<span class="hj' + (x.t === "Symbol" ? " sym" : "") + (viejo && (!y || y.a || y.r !== x.r) ? " cambia" : "") + '" title="' + esc(x.t) + '">' + esc(x.r) + "</span></li>";
+      const camb = viejo && (!y || !y.a || y.h !== x.h || y.a.length !== x.a.length);
+      return "<li>" + idx + '<span class="cz' + (camb ? " cambia" : "") + '" title="head">:' + esc(x.h) + "</span><ul>" + x.a.map((h, k) => nodo(h, y && y.a ? y.a[k] : null, k)).join("") + "</ul></li>";
+    };
+    return '<div class="ex"><div class="ex-r">' + esc(v.r) + '</div><div class="arbol"><ul>' + nodo(v.expr, viejo, null) + "</ul></div></div>";
+  }
   function valor(v, a, op = {}) {
+    if (v.expr) return arbolExpr(v, a);
     if (v.plot) return fichaGrafico(v, a);
     if (v.dict) return tablaDict(v, a);
     if (v.df) return tablaDF(v, a);

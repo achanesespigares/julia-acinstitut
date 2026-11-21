@@ -195,7 +195,9 @@ export function repr(x, dentro = false) {
     case "Missing": return "missing";
     case "Rational": return x.n + "//" + x.d;
     case "Irrational": return x.nombre;
-    case "Symbol": return ":" + x.v;
+    case "Symbol": return GANCHOS.reprSimbolo ? GANCHOS.reprSimbolo(x.v) : ":" + x.v;
+    case "Expr": return GANCHOS.reprExpr(x);
+    case "QuoteNode": case "GlobalRef": case "LineNumberNode": return GANCHOS.reprRaro(x);
     case "UnitRange": return x.oneTo ? "Base.OneTo(" + x.stop + ")" : x.start + ":" + x.stop;
     case "StepRange": return x.start + ":" + x.step + ":" + x.stop;
     case "FloatRange": return decimalesRango(x);
@@ -279,7 +281,7 @@ function muestraClaves(x) {
 }
 
 // print(x): como repr, pero los textos y los caracteres van tal cual
-export const texto = x => x.T === "String" || x.T === "Char" ? x.v : repr(x);
+export const texto = x => x.T === "String" || x.T === "Char" || x.T === "Symbol" ? x.v : ["Expr", "QuoteNode", "GlobalRef"].includes(x.T) ? GANCHOS.textoExpr(x) : repr(x);
 
 // display(x): lo que escribe el REPL al mostrar un valor (show con MIME"text/plain")
 export function muestra(x) {

@@ -129,7 +129,41 @@ function registra(p)
     nothing
 end
 
+# ── El código como dato (capítulo 20) ────────────────────────────────────
+# Una expresión (Expr) se describe como la escribe el REPL y, además, como árbol: cada nodo con su cabeza
+# (head) y sus argumentos (args); las hojas son símbolos, números, textos… El visualizador dibuja ese árbol.
+# Es mutable (ex.args[1] = :* la cambia sin hacer otra): lleva identidad, como un vector.
+const EXPR_NODOS = 60
+function arbol_expr(x, cuenta)
+    cuenta[] += 1
+    cuenta[] > EXPR_NODOS && return nothing
+    x isa Expr || return Dict{String,Any}("t" => nombre_tipo(x), "r" => un_valor(x))
+    hs = Any[arbol_expr(a, cuenta) for a in x.args]
+    any(isnothing, hs) && return nothing
+    Dict{String,Any}("h" => string(x.head), "r" => un_valor(x), "a" => hs)
+end
+# Un GlobalRef (lo que deja la higiene de una macro: println pasa a ser Main.println) se escribe con su módulo.
+# El programa corre en Module(:Main), que Julia escribe Main.Main; en el REPL es Main. Es la función de
+# base/show.jl, con ese único cambio
+function Base.show_globalref(io::IO, ex::GlobalRef; allow_macroname = false)
+    print(io, isassigned(T) && ex.mod === T[].modulo ? "Main" : ex.mod)
+    print(io, '.')
+    quoted = !Base.isidentifier(ex.name) && !startswith(string(ex.name), "@")
+    parens = quoted && (!Base.isoperator(ex.name) || (ex.name in Base.quoted_syms))
+    quoted && print(io, ':')
+    parens && print(io, '(')
+    Base.show_sym(io, ex.name, allow_macroname = allow_macroname)
+    parens && print(io, ')')
+    nothing
+end
+
 function describe(x, prof = 0)
+    if x isa Expr
+        d = Dict{String,Any}("t" => "Expr", "r" => sin_main(sprint(show, MIME"text/plain"(), x; context = :module => T[].modulo)), "id" => un_id(x))
+        a = arbol_expr(x, Ref(0))
+        a === nothing || (d["expr"] = a)
+        return d
+    end
     if es_plot(x)
         return Dict{String,Any}("t" => nombre_tipo(x), "plot" => describe_grafico(x), "id" => un_id(x))
     end
@@ -541,6 +575,8 @@ function traza(codigo::AbstractString, config::AbstractDict; svg = nothing)
     PLOTS[] === nothing || (PLOTS[].CURRENT_PLOT.nullableplot = nothing)     # cada programa empieza sin gráfico actual
     CODIGO[] = codigo
     Core.eval(st.modulo, :(using Random; Random.seed!(1)))
+    # Module(:Main) no trae eval, que todo módulo hecho con `module … end` sí tiene (capítulo 20)
+    Core.eval(st.modulo, :(eval(x) = Core.eval($(st.modulo), x)))
     push!(st.pasos, Dict("linea" => nothing, "tipo" => "inicio", "estado" => Dict(), "orden" => String[],
                          "salida" => "", "nfilas" => 0))
     ex = Meta.parseall(codigo; filename = "programa.jl")

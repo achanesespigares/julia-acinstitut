@@ -1,0 +1,37 @@
+Expr(:call, :f, :n, Expr(:call, ://, Expr(:call, :(==), :b, :n), Expr(:call, :-, 0.5, "t")))
+Expr(:call, :(==), Expr(:call, :(==), Expr(:call, ://, -1.5, "t"), :b), Expr(:call, :(==), Expr(:call, :/, 8, -3), Expr(:call, :/, :n, 7)))
+:(3)
+:(n)
+:(5((2)) >= [true * a])
+:(sqrt())
+:(([n]))
+2
+Expr(:call, :(<), Expr(:call, :(<), Expr(:call, :^, 2.0, :x), Expr(:call, :f, :n, 2)), Expr(:call, :f, Expr(:call, :^, -3, 6), 2.0))
+Expr(:call, :-, Expr(:call, :*, Expr(:call, :(<), "t", :b), :b))
+:a
+:y
+:(9n)
+Expr(:call, :f, Expr(:call, ://, Expr(:call, :/, :y, :n), "t"), Expr(:call, :^, Expr(:call, :+, :x), Expr(:call, :(<), :a, 0)))
+:(x)
+:(f(x in n / -4 ^ 2, [g(y, n, -9), b ÷ a, a / 9], [f(a)]))
+-1.5
+Expr(:&&, Expr(:&&, Expr(:call, :f, "t", "t"), 1), Expr(:&&, Expr(:&&, :n, -3), Expr(:&&, "t", "t")))
+Expr(:call, :+, :a, Expr(:call, :f, 1, :n))
+:(8x || n.campo && (y))
+:(a.campo)
+:(4(a) != g())
+:(f())
+:(([a.campo, a ^ -4, b // 1]))
+:((0 + 9, sqrt(y), g(a)) >= ((b), [n]))
+Expr(:&&, Expr(:call, :f, Expr(:&&, 0, -3), Expr(:call, :f, :a, "t", :x), 0.5), Expr(:call, :(==), 0.5, "t"))
+Expr(:call, :(==), "t", :n)
+2.0
+:(1(9n) => n == 6 || x == a)
+Expr(:call, :f, Expr(:call, :^, :a, Expr(:call, :sqrt, :x)), Expr(:&&, Expr(:call, :-, :a, :b), :b))
+Expr(:call, :(<), Expr(:call, :f, Expr(:call, :f, :b, :b), Expr(:call, :-, "t", "t"), Expr(:call, :-, :y, 0.5)), :y)
+Expr(:call, :(<), Expr(:call, :(==), Expr(:call, :-, :n, :y), :n), 7)
+Expr(:call, :-, Expr(:call, :f, Expr(:call, :-, :a, "t", 2)), Expr(:call, :*, Expr(:call, :-, :x, :n), Expr(:call, :-, "t", "t", "t")))
+Expr(:call, :*, Expr(:call, :(==), 0, :a), Expr(:call, :-, Expr(:call, :(==), :b, :b), :x, Expr(:call, :(==), :x, 0.5)))
+:(n)
+:a
+Expr(:call, :!, :n)
