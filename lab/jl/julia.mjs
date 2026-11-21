@@ -363,8 +363,8 @@ class Programa {
   }
   bucleWhile(n, nivel, sc) {
     const l = linea(n);
-    const c = n.childForFieldName("condition");
-    const cuerpo = hijos(n).filter(x => x.id !== c.id);
+    const { c, fuera } = this.condicion(n), c0 = n.childForFieldName("condition");
+    const cuerpo = hijos(n).filter(x => x.id !== c0.id && !fuera.has(x.id));
     this.va(l);
     while (true) {
       const v = this.valor(c, sc);
@@ -382,20 +382,36 @@ class Programa {
     if (v.T === "Bool") return v.v;
     throw new ErrorJulia("TypeError: non-boolean (" + V.tipo(v) + ") used in boolean context");
   }
+  // tree-sitter lee «while b - a > tol» como la condición «b» seguida de la sentencia «-a > tol» (por el
+  // espacio antes del signo y no después… aunque aquí hay espacio a los dos lados). Julia lee la línea
+  // entera como condición: se vuelve a leer el texto de la condición solo, entre paréntesis.
+  condicion(n) {
+    const c = n.childForFieldName("condition"), fila = c.startPosition.row;
+    const sobran = hijos(n).filter(x => x.id !== c.id && x.startPosition.row === fila && x.type !== "elseif_clause" && x.type !== "else_clause");
+    if (!sobran.length) return { c, fuera: new Set() };
+    const lin = this.codigo.split("\n")[fila];
+    const m = lin.match(/^\s*(?:while|if|elseif)\s+(.*?)\s*$/);
+    if (!m || /["'#]/.test(m[1])) throw new NoSoportado("leer la condición de la línea " + (fila + 1) + ": escríbela entre paréntesis");
+    const arbol = this.parser.parse("(" + m[1] + ")\n");
+    const raiz = hijos(arbol.rootNode);
+    if (arbol.rootNode.hasError || raiz.length !== 1) throw new NoSoportado("leer la condición de la línea " + (fila + 1) + ": escríbela entre paréntesis");
+    this.arboles = this.arboles || []; this.arboles.push(arbol);
+    let nc = raiz[0]; while (nc.type === "parenthesized_expression" && hijos(nc).length === 1) nc = hijos(nc)[0];
+    return { c: nc, fuera: new Set(sobran.map(x => x.id)), fila: fila + 1 };
+  }
   siEntonces(n, nivel, sc) {
-    const c = n.childForFieldName("condition");
-    const lc = linea(c.type === "if_statement" ? n : n);
+    const { c, fuera } = this.condicion(n);
     const ramas = hijos(n).filter(x => x.type === "elseif_clause" || x.type === "else_clause");
-    const cuerpo = hijos(n).filter(x => x.id !== c.id && x.type !== "elseif_clause" && x.type !== "else_clause");
+    const cuerpo = hijos(n).filter(x => x.id !== n.childForFieldName("condition").id && !fuera.has(x.id) && x.type !== "elseif_clause" && x.type !== "else_clause");
     const v = this.valor(c, sc);
     this.cond(n.type === "elseif_clause" ? linea(n) : linea(n), c, v, sc);
     if (this.booleano(v)) return this.bloque(cuerpo, nivel + 1, sc);
     for (const r of ramas) {
       if (r.type === "elseif_clause") {
-        const rc = r.childForFieldName("condition");
+        const { c: rc, fuera: rf } = this.condicion(r), rc0 = r.childForFieldName("condition");
         const rv = this.valor(rc, sc);
         this.cond(linea(r), rc, rv, sc);
-        if (this.booleano(rv)) return this.bloque(hijos(r).filter(x => x.id !== rc.id), nivel + 1, sc);
+        if (this.booleano(rv)) return this.bloque(hijos(r).filter(x => x.id !== rc0.id && !rf.has(x.id)), nivel + 1, sc);
       } else return this.bloque(hijos(r), nivel + 1, sc);
     }
     return NADA;

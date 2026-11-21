@@ -12,6 +12,7 @@ import * as TB from "./tablas.mjs";
 import * as AL from "./algebra.mjs";
 import * as GR from "./graficos.mjs";
 import * as AZ from "./azar.mjs";
+import * as MT from "./matematicas.mjs";
 import { ErrorJulia, NoSoportado, I, F, B, S, Ch, NADA, FALTA, errorMetodo, aNum, tipo, repr } from "./valores.mjs";
 
 const T = nombre => ({ T: "Tipo", nombre });
@@ -23,10 +24,10 @@ export const TIPOS = {
 // Nombres de Julia que existen pero que el laboratorio aún no sabe ejecutar
 export const CONOCIDAS = new Set(("big BigInt BigFloat Float32 Int32 Int8 UInt8 UInt Complex complex im mean median " +
   "Set lpad rpad " +
-  "chomp reduce foldl foldr mapreduce accumulate cumsum cumprod diff unique sortperm argmax argmin extrema " +
+  "chomp reduce foldl foldr mapreduce accumulate cumsum cumprod diff unique sortperm extrema " +
   "Matrix Array axes LinearAlgebra Statistics println_ " +
   "struct mutable abstract typeof_ isa eltype convert promote sizeof summarysize objectid ismutable deepcopy view @view @views similar " +
-  "ifelse iterate Iterators sum! maximum! push !== === try catch error throw rethrow DomainError ArgumentError " +
+  "ifelse iterate Iterators sum! maximum! push !== === try catch throw rethrow DomainError ArgumentError " +
   "time @time @elapsed @btime sleep open read write readline readlines eachline isfile").split(" "));
 
 const NUM = x => V.esNumero(x);
@@ -52,6 +53,8 @@ const errInexacto = (t, x) => new ErrorJulia("InexactError: " + t + "(" + repr(x
 const DOM_SQRT = x => new ErrorJulia("DomainError with " + V.decimal(x) + ":\nsqrt was called with a negative real argument but will only return a complex result if called with a complex argument. Try sqrt(Complex(x)).");
 const DOM_LOG = (f, x) => new ErrorJulia("DomainError with " + V.decimal(x) + ":\n" + f + " was called with a negative real argument but will only return a complex result if called with a complex argument. Try " + f + "(Complex(x)).");
 
+// el resultado de una función de matematicas.mjs, o NoSoportado si queda fuera de lo copiado de Julia
+const julia = (nombre, x, v) => { if (v === null) throw new NoSoportado(nombre + "(" + V.decimal(x) + "): el laboratorio aún no lo calcula con el último dígito de Julia"); return v; };
 export function crearPrimitivas(prog) {
   const P = {};
   // ── Aritmética ───────────────────────────────────────────────────────
@@ -133,7 +136,11 @@ export function crearPrimitivas(prog) {
             if (n === -2) { const i = 1 / x; return F(i * i); }
           }
           if (x < 0 && !Number.isInteger(y)) throw new ErrorJulia("DomainError with " + V.decimal(x) + ":\nExponentiation yielding a complex result requires a complex argument.\nReplace x^y with (x+0im)^y, Complex(x)^y, or similar.");
-          return F(Math.pow(x, y));
+          if (x === 0 || !Number.isFinite(x) || Number.isNaN(y)) return F(Math.pow(x, y));      // los casos especiales de IEEE, iguales en Julia
+          // como Julia (pow.jl): con exponente entero, potencias por cuadrados compensadas; si no, log y exp
+          const r = (b.T === "Int64" || b.T === "Bool") ? MT.potenciaEntera(x, y) : MT.potencia(x, y);
+          if (r === null) throw new NoSoportado(V.decimal(x) + "^" + V.decimal(y) + ": el laboratorio aún no lo calcula con el último dígito de Julia");
+          return F(r);
         }
       }
     }
@@ -504,14 +511,19 @@ export function crearPrimitivas(prog) {
   fn.typeof = ([x]) => T(tipo(x));
   fn.sqrt = unNum("sqrt", x => { const v = aNum(x); if (v < 0) throw DOM_SQRT(v); return F(Math.sqrt(v)); });
   fn.cbrt = unNum("cbrt", x => F(Math.cbrt(aNum(x))));
-  fn.exp = unNum("exp", x => F(Math.exp(aNum(x))));
+  // exp, log, sin y cos con los algoritmos de Julia (matematicas.mjs): Math.exp y compañía no siempre dan su último dígito
+  fn.exp = unNum("exp", x => { const v = aNum(x); return F(julia("exp", v, MT.exp(v))); });
+  const lg = (nombre, f) => x => { const v = aNum(x); if (v < 0) throw DOM_LOG(nombre, v); return julia(nombre, v, f(v)); };
   fn.log = (args) => {
-    if (args.length === 2) { const [b, x] = args.map(aNum); if (x < 0) throw DOM_LOG("log", x); if (b < 0) throw DOM_LOG("log", b); return F(Math.log(x) / Math.log(b)); }
-    return unNum("log", x => { const v = aNum(x); if (v < 0) throw DOM_LOG("log", v); return F(Math.log(v)); })(args);
+    if (args.length === 2) { const [b, x] = args; if (!NUM(b) || !NUM(x)) throw errorMetodo("log", args); return F(lg("log", MT.log)(x) / lg("log", MT.log)(b)); }
+    return unNum("log", x => F(lg("log", MT.log)(x)))(args);
   };
-  fn.log10 = unNum("log10", x => { const v = aNum(x); if (v < 0) throw DOM_LOG("log10", v); return F(Math.log10(v)); });
-  fn.log2 = unNum("log2", x => { const v = aNum(x); if (v < 0) throw DOM_LOG("log2", v); return F(Math.log2(v)); });
-  for (const t of ["sin", "cos", "tan", "atan", "sinh", "cosh", "tanh"]) fn[t] = unNum(t, x => F(Math[t](aNum(x))));
+  fn.log10 = unNum("log10", x => F(lg("log10", MT.log10)(x)));
+  fn.log2 = unNum("log2", x => F(lg("log2", MT.log2)(x)));
+  const DOM_TRIG = (f, v) => new ErrorJulia("DomainError with " + V.decimal(v) + ":\n" + f + "(x) is only defined for finite x.");
+  for (const t of ["sin", "cos"]) fn[t] = unNum(t, x => { const v = aNum(x); if (v === Infinity || v === -Infinity) throw DOM_TRIG(t, v); return F(julia(t, v, MT[t](v))); });
+  fn.atan = unNum("atan", x => F(Math.atan(aNum(x))));          // comprobado: igual que Julia en 60 000 valores
+  for (const t of ["tan", "sinh", "cosh", "tanh", "asin", "acos", "expm1", "log1p"]) fn[t] = unNum(t, x => { throw new NoSoportado(t + ": el laboratorio aún no lo calcula con el último dígito de Julia (pruébalo en la nube)"); });
   fn.abs = unNum("abs", x => x.T === "Int64" ? I(x.v < 0n ? -x.v : x.v) : x.T === "Bool" ? x : x.T === "Rational" ? V.rac(x.n < 0n ? -x.n : x.n, x.d) : F(Math.abs(aNum(x))));
   fn.sign = unNum("sign", x => x.T === "Int64" ? I(x.v > 0n ? 1 : x.v < 0n ? -1 : 0) : F(Math.sign(aNum(x))));
   fn.iszero = unNum("iszero", x => B(aNum(x) === 0));
@@ -613,6 +625,24 @@ export function crearPrimitivas(prog) {
     return r;
   };
   fn.maximum = extremo("maximum", true);
+  // findmax(v) da (el mayor, su posición) y argmax(v) solo la posición; con empate, la primera
+  const busca = (nombre, mayor, que) => (args, kw) => {
+    if (kw && kw.size) throw new NoSoportado(nombre + " con opciones");
+    if (args.length !== 1) throw new NoSoportado(nombre + " con " + args.length + " argumentos");
+    const [x] = args;
+    if (MX.esMatriz(x)) throw new NoSoportado(nombre + " de una matriz (Julia da un CartesianIndex)");
+    if (!V.esVector(x)) throw errorMetodo(nombre, args);
+    const els = V.elementos(x);
+    if (!els.length) throw new ErrorJulia("ArgumentError: collection must be non-empty");
+    if (els.some(e => e.T === "Float64" && Number.isNaN(e.v))) throw new NoSoportado(nombre + " con NaN");
+    let k = 0;
+    for (let i = 1; i < els.length; i++) if (P.compara(mayor ? ">" : "<", els[i], els[k]).v) k = i;
+    return que === "par" ? { T: "Tuple", a: [els[k], I(k + 1)] } : I(k + 1);
+  };
+  fn.findmax = busca("findmax", true, "par"); fn.findmin = busca("findmin", false, "par");
+  fn.argmax = busca("argmax", true, "indice"); fn.argmin = busca("argmin", false, "indice");
+  // error("…"): un ErrorException con ese texto
+  fn.error = (args) => { throw new ErrorJulia(args.map(a => a.T === "String" ? a.v : P.muestra ? V.texto(a) : V.repr(a)).join("")); };
   fn.minimum = extremo("minimum", false);
   fn.count = (args) => {
     const els = args.length === 2 ? P.itera(args[1]).map(e => prog.aplica(args[0], [e], new Map())) : P.itera(args[0]);

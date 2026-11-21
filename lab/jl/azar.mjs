@@ -199,7 +199,7 @@ function normalRara(g, idx, rabs, x) {
 }
 export const normal = g => normalDe(g, g.siguiente() >> 12n);
 export const decimal = g => aDecimal(g.siguiente());
-export { aDecimal };
+export { aDecimal, fma, muladd, horner, bits, deBits };
 
 // ── Las funciones del laboratorio: rand, randn, Random.seed! ─────────────
 const RNG = { T: "RNG" };

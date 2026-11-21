@@ -37,6 +37,7 @@ project:
         - file: capitulos/11-algebra-lineal.md
         - file: capitulos/12-graficos.md
         - file: capitulos/13-probabilidad.md
+        - file: capitulos/14-ecuaciones-optimizacion.md
 site:
   template: book-theme
   options:
