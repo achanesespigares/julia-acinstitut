@@ -1,0 +1,10 @@
+cld(7, 2)
+cld(-7, 2)
+cld(7, -2)
+cld(8, 2)
+fld(7, 2)
+fld(-7, 2)
+fld(7, -2)
+fld(-8, 2)
+[cld(n, 3) for n in 0:6]
+cld(5, 0)

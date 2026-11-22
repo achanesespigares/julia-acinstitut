@@ -336,6 +336,7 @@ export function crearPrimitivas(prog) {
     if (res.some(MX.esMatriz)) throw new NoSoportado("un vector de matrices");
     const tipos = [...new Set(res.map(r => r.T === "Rational" ? "Rational{Int64}" : r.T === "Vector" || r.T === "String" || r.T === "Pair" || r.T === "Struct" ? tipo(r) : r.T))];
     if (res.some(r => r.T === "Struct")) return V.vec(V.promueve(tipos), res);
+    if (res.every(r => V.esRango(r) && tipo(r) === "UnitRange{Int64}")) return V.vec("UnitRange{Int64}", res);      // un vector de rangos (capítulo 25)
     if (res.every(r => r.T === "Vector")) return P.vectorDeVectores(res);
     if (tipos.length > 1 && tipos.every(t => t === "String" || t === "SubString{String}")) return V.vec("AbstractString", res);
     if (tipos.length === 1) {
@@ -360,6 +361,7 @@ export function crearPrimitivas(prog) {
   // Solo si todos son del mismo tipo (si no, Julia los convierte y los copia) y de enteros, símbolos o textos.
   const INTERIOR = ["Int64", "Symbol", "String"];
   P.vectorDeVectores = vals => {
+    if (vals.every(v => V.esRango(v) && tipo(v) === "UnitRange{Int64}")) return V.vec("UnitRange{Int64}", [...vals]);
     if (!vals.every(v => v.T === "Vector" && !V.esRango(v) && !v.vistaDe && INTERIOR.includes(v.el)))
       throw new NoSoportado("este vector de vectores (solo de vectores de enteros, símbolos o textos)");
     const tipos = new Set(vals.map(tipo));
@@ -764,6 +766,9 @@ export function crearPrimitivas(prog) {
     throw errorMetodo(nombre, args);
   };
   fn.div = dosEnteros("div", (x, y, ent) => { if (ent) { if (y === 0n) throw new ErrorJulia("DivideError: integer division error"); return I(x / y); } return F(Math.trunc(x / y)); });
+  // y (capítulo 25): división entera redondeando hacia arriba o hacia abajo; con decimales, NoSoportado
+  fn.cld = dosEnteros("cld", (x, y, ent) => { if (!ent) throw new NoSoportado("cld con decimales"); if (y === 0n) throw new ErrorJulia("DivideError: integer division error"); const q = x / y, r = x % y; return I(r !== 0n && (r < 0n) === (y < 0n) ? q + 1n : q); });
+  fn.fld = dosEnteros("fld", (x, y, ent) => { if (!ent) throw new NoSoportado("fld con decimales"); if (y === 0n) throw new ErrorJulia("DivideError: integer division error"); const q = x / y, r = x % y; return I(r !== 0n && (r < 0n) !== (y < 0n) ? q - 1n : q); });
   fn.rem = dosEnteros("rem", (x, y, ent) => { if (ent) { if (y === 0n) throw new ErrorJulia("DivideError: integer division error"); return I(x % y); } return F(x % y); });
   fn.mod = dosEnteros("mod", (x, y, ent) => {
     if (ent) { if (y === 0n) throw new ErrorJulia("DivideError: integer division error"); const r = x % y; return I(r !== 0n && (r < 0n) !== (y < 0n) ? r + y : r); }

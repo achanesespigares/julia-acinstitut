@@ -437,6 +437,7 @@ const EJEMPLOS = [
   { nombre: "Una nota que no vale", codigo: "function nota(t)\n    n = tryparse(Float64, t)\n    n === nothing && throw(ArgumentError(\"«$t» no es un número\"))\n    0 <= n <= 10 || throw(DomainError(n, \"la nota va de 0 a 10\"))\n    return n\nend\nfor t in [\"8.5\", \"once\", \"12\", \"6\"]\n    try\n        println(t, \" → \", nota(t))\n    catch e\n        println(t, \" → \", typeof(e))\n    end\nend\nnota(\"diez\")" },
   { nombre: "Un módulo propio", codigo: "module Tienda\nexport precio\nconst IVA = 0.21\nprecio(base) = round(base * (1 + IVA); digits = 2)\nend\nusing .Tienda\nprecios = precio.([10.0, 4.5, 20.0])\nTienda.IVA\nv\"1.10.0\" > v\"1.9.0\"" },
   { nombre: "Un cuaderno que reacciona", codigo: "function afectadas(i, despues, orden = Int[])\n    for j in despues[i]\n        if !(j in orden)\n            afectadas(j, despues, orden)\n        end\n    end\n    pushfirst!(orden, i)\n    return orden\nend\nceldas = [\"precio = 20.0\", \"iva = 0.21 * precio\", \"total = precio + iva\"]\ndespues = [[2, 3], [3], Int[]]\nfor c in celdas\n    eval(Meta.parse(c))\nend\n(precio, iva, total)\nceldas[1] = \"precio = 50.0\"\nfor i in afectadas(1, despues)\n    eval(Meta.parse(celdas[i]))\nend\n(precio, iva, total)" },
+  { nombre: "Dos hilos que se pisan", codigo: "function ejecuta(orden)\n    total = 0\n    leido = [0, 0]\n    leyo = [false, false]\n    for h in orden\n        if !leyo[h]\n            leido[h] = total\n            leyo[h] = true\n        else\n            total = leido[h] + 1\n            leyo[h] = false\n        end\n    end\n    return total\nend\nejecuta([1, 1, 2, 2])\nejecuta([2, 1, 1, 2])" },
   { nombre: "Una vista que trabaja", codigo: "function aprueba!(v)\n    for i in eachindex(v)\n        v[i] = max(v[i], 5)\n    end\n    return v\nend\nnotas = [3, 8, 4, 9, 2, 7]\ngrupo_a = view(notas, 1:3)\naprueba!(grupo_a)\nnotas\ncopia = notas[4:6]\naprueba!(copia)\nnotas" },
   { nombre: "Contar los pasos", codigo: "v = [3, 8, 15, 21, 30, 42, 57, 64, 77, 88]\nx = 64\nizq = 1\nder = length(v)\npasos = 0\nwhile izq <= der\n    pasos += 1\n    m = (izq + der) ÷ 2\n    if v[m] == x\n        break\n    elseif v[m] < x\n        izq = m + 1\n    else\n        der = m - 1\n    end\nend\npasos", tabla: "pasos, izq, m, der" },
   { nombre: "Un bucle que suma", codigo: "notas = [9.0, 6.5, 4.0, 7.5]\ntotal = 0.0\nfor i in eachindex(notas)\n    if notas[i] >= 5\n        total += notas[i]\n    end\nend\ntotal", tabla: "i, notas[i], total" },
@@ -1258,6 +1259,19 @@ function dibujaTraza(el, C, D) {
       const nada = !frases.length;
       frases.unshift(code("Meta.parse") + " convierte el texto de la celda, " + code(celdaTxt) + ", en una expresión, y " + code("eval") + " la ejecuta, como si esa línea estuviera escrita aquí." +
         (nada ? (/^\s/.test(L[p.linea - 1] || "") && !Object.keys(prev && prev.estado || {}).some(k => celdaTxt.startsWith('"' + k + " =")) ? " Lo que define todavía no se ve en la memoria: aparecerá cuando termine el bucle." : " La memoria no cambia: el valor que calcula es el mismo que ya tenía.") : ""));
+    }
+    // una asignación que deja el mismo valor: la memoria no cambia (la clave de una carrera perdida)
+    const asg = (L[p.linea - 1] || "").match(/^\s*(\w+)(?:\[(\w+)\])?\s*=\s*([^=].*)$/);
+    if (!frases.length && asg) {
+      const busca = n => { const m = p.marcos && p.marcos.length ? p.marcos[p.marcos.length - 1].vars || {} : {}; return m[n] || (p.estado || {})[n]; };
+      const [, nom, ix] = asg, x = busca(nom);
+      const iv = ix && (/^\d+$/.test(ix) ? ix : ((busca(ix) || {}).v || [])[0]);
+      const val = x && x.v && (ix ? (iv ? x.v[iv - 1] : undefined) : (x.v.length === 1 && !x.el ? x.v[0] : undefined));
+      if (val !== undefined) {
+        const dest = ix ? nom + "[" + iv + "]" : nom;
+        return "Se ejecuta " + code(L[p.linea - 1].trim()) + ((() => { const k = ((L[p.linea - 1].match(/\[([A-Za-z_]\w*)\]/) || [])[1]), kv = k && ((busca(k) || {}).v || [])[0]; return kv ? ", con " + code(k + " = " + kv) : ""; })()) + ": " + code(dest) + " recibe " + code(val) +
+          ", el valor que ya tenía, así que la memoria no cambia.";
+      }
     }
     return frases.length ? frases.join(" ") : "Se ejecuta la línea " + p.linea + ".";
   }

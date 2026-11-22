@@ -278,6 +278,7 @@ class Programa {
       if (p === "Plots") throw new ErrorJulia(base.replace(/\n$/, ""));
       throw new ErrorJulia(base + "Hint: a global variable of this name also exists in " + p + ".");
     }
+    if (nombre === "Threads" || nombre === "Distributed") throw new NoSoportado("los hilos y los procesos de Julia (" + nombre + "): cuántos hay y en qué orden avanzan depende del ordenador, y el laboratorio no los puede imitar. Pruébalo en tu ordenador con julia -t auto");
     if (CONOCIDAS.has(nombre) || NOMBRES_BASE.has(nombre)) throw new NoSoportado("la función " + nombre + "()");
     for (const [p, ns] of Object.entries(NOMBRES_PAQUETES)) if (ns.has(nombre)) throw new NoSoportado(nombre + ", de " + p);
     throw new ErrorJulia("UndefVarError: `" + nombre + "` not defined in `" + (this.modulo ? V.repr(this.modulo) : "Main") + "`\nSuggestion: check for spelling errors or missing imports.");
@@ -1597,6 +1598,9 @@ class Programa {
     } finally { this.mudo--; }
   }
   macro(n, sc) {
+    // capítulo 25: los hilos y los procesos dependen del ordenador; el laboratorio los simula, pero no los tiene
+    if (/^(Threads|Distributed)\.@|^@(threads|spawn|distributed|everywhere|async|sync)\b/.test(n.text.trim()))
+      throw new NoSoportado("los hilos y los procesos de Julia (Threads, @threads, @spawn, Distributed): cuántos hay y en qué orden avanzan depende del ordenador, y el laboratorio no los puede imitar. Pruébalo en tu ordenador con julia -t auto");
     const nombre = hijos(hijos(n)[0])[0]?.text;
     const args = this.argsMacro(n);
     const propia = this.glob.get("@" + nombre);
@@ -1728,6 +1732,11 @@ class Programa {
           const xi = desnuda(x);
           if (xi.type === "binary_expression" && ["&&", "||"].includes(opDe(xi))) return op + "(" + ESC(xi) + ")";
           if (xi.type === "binary_expression") return op + (prec(opDe(xi)) < 13 ? "((" + ESC(xi) + "))" : "(" + ESC(xi) + ")");
+          // Julia escribe entre paréntesis lo que no es un nombre ni un número: !(leyo[h]), !(isempty(v)), -(v[1]) (capítulo 25)
+          if (!["identifier", "integer_literal", "float_literal", "boolean_literal"].includes(xi.type)) {
+            const t = ESC(xi);       // con los valores puestos, un valor suelto va sin paréntesis: !false, -3
+            return op + (/^-?[\w.]+$/.test(t) && xi.type !== "field_expression" ? t : "(" + t + ")");
+          }
           return op + ESC(x, 14);
         }
         case "call_expression": case "broadcast_call_expression": {
