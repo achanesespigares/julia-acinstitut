@@ -53,6 +53,9 @@ project:
         - file: capitulos/23-entornos-paquetes.md
         - file: capitulos/24-cuadernos-pluto.md
         - file: capitulos/25-paralelismo.md
+    - title: Proyectos
+      children:
+        - file: capitulos/26-proyecto-gripe.md
 site:
   template: book-theme
   options:

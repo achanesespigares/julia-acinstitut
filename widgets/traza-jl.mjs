@@ -400,11 +400,12 @@ const PLANTILLA = `
     <div class="tz-mandos">
       <button class="tz-ant" aria-label="Paso anterior">◀</button>
       <button class="tz-sig pri">Paso ▶</button>
+      <button class="tz-salta" title="Ir directamente a lo que devuelve esta llamada (tecla S)">Saltar la llamada</button>
       <button class="tz-play">Reproducir</button>
       <button class="tz-reset">Reiniciar</button>
       <button class="tz-proy" aria-pressed="false" title="Pantalla completa para proyectar en clase (tecla F)">Proyectar</button>
       <span class="tz-cuenta"></span>
-      <span class="tz-teclas">→ paso · ← atrás · P reproducir · Inicio reiniciar · Esc salir</span>
+      <span class="tz-teclas">→ paso · ← atrás · S saltar la llamada · P reproducir · Inicio reiniciar · Esc salir</span>
     </div>
   </div>
   <div class="tz-col">
@@ -438,6 +439,7 @@ const EJEMPLOS = [
   { nombre: "Un módulo propio", codigo: "module Tienda\nexport precio\nconst IVA = 0.21\nprecio(base) = round(base * (1 + IVA); digits = 2)\nend\nusing .Tienda\nprecios = precio.([10.0, 4.5, 20.0])\nTienda.IVA\nv\"1.10.0\" > v\"1.9.0\"" },
   { nombre: "Un cuaderno que reacciona", codigo: "function afectadas(i, despues, orden = Int[])\n    for j in despues[i]\n        if !(j in orden)\n            afectadas(j, despues, orden)\n        end\n    end\n    pushfirst!(orden, i)\n    return orden\nend\nceldas = [\"precio = 20.0\", \"iva = 0.21 * precio\", \"total = precio + iva\"]\ndespues = [[2, 3], [3], Int[]]\nfor c in celdas\n    eval(Meta.parse(c))\nend\n(precio, iva, total)\nceldas[1] = \"precio = 50.0\"\nfor i in afectadas(1, despues)\n    eval(Meta.parse(celdas[i]))\nend\n(precio, iva, total)" },
   { nombre: "Dos hilos que se pisan", codigo: "function ejecuta(orden)\n    total = 0\n    leido = [0, 0]\n    leyo = [false, false]\n    for h in orden\n        if !leyo[h]\n            leido[h] = total\n            leyo[h] = true\n        else\n            total = leido[h] + 1\n            leyo[h] = false\n        end\n    end\n    return total\nend\nejecuta([1, 1, 2, 2])\nejecuta([2, 1, 1, 2])" },
+  { nombre: "Un brote, día a día", codigo: "N = 763\nS = 762.0\nI = 1.0\nfor dia in 1:8\n    contagios = 1.67 * S * I / N\n    curas = 0.44 * I\n    S = S - contagios\n    I = I + contagios - curas\nend\nI", tabla: "dia, S, I" },
   { nombre: "Una vista que trabaja", codigo: "function aprueba!(v)\n    for i in eachindex(v)\n        v[i] = max(v[i], 5)\n    end\n    return v\nend\nnotas = [3, 8, 4, 9, 2, 7]\ngrupo_a = view(notas, 1:3)\naprueba!(grupo_a)\nnotas\ncopia = notas[4:6]\naprueba!(copia)\nnotas" },
   { nombre: "Contar los pasos", codigo: "v = [3, 8, 15, 21, 30, 42, 57, 64, 77, 88]\nx = 64\nizq = 1\nder = length(v)\npasos = 0\nwhile izq <= der\n    pasos += 1\n    m = (izq + der) ÷ 2\n    if v[m] == x\n        break\n    elseif v[m] < x\n        izq = m + 1\n    else\n        der = m - 1\n    end\nend\npasos", tabla: "pasos, izq, m, der" },
   { nombre: "Un bucle que suma", codigo: "notas = [9.0, 6.5, 4.0, 7.5]\ntotal = 0.0\nfor i in eachindex(notas)\n    if notas[i] >= 5\n        total += notas[i]\n    end\nend\ntotal", tabla: "i, notas[i], total" },
@@ -1504,14 +1506,26 @@ function dibujaTraza(el, C, D) {
     }
     q(".tz-cuenta").textContent = "paso " + k + " de " + (P.length - 1);
     q(".tz-ant").disabled = k === 0; q(".tz-sig").disabled = k === P.length - 1;
+    q(".tz-salta").hidden = !P.some(x => x.tipo === "llamada"); q(".tz-salta").disabled = finLlamada(k) === null;
     const filas = (D.filas || []).slice(0, p.nfilas || 0);
     q(".tz-tabla").querySelector("tbody").innerHTML = filas.map((f, i) => '<tr class="' + (i === filas.length - 1 && p.nfilas > (prev.nfilas || 0) ? "nueva" : "") + '">' +
       cols.map(c => "<td>" + esc(f[c] ?? "") + "</td>").join("") + "</tr>").join("");
     requestAnimationFrame(coloca);
   }
+  // «Saltar la llamada»: desde el paso en que empieza una llamada, al paso en que devuelve (o en que su marco se cierra)
+  function finLlamada(i) {
+    if (!P[i] || P[i].tipo !== "llamada") return null;
+    const n = (P[i].marcos || []).length;
+    for (let j = i + 1; j < P.length; j++) {
+      const m = (P[j].marcos || []).length;
+      if (m < n || (m === n && P[j].tipo === "devuelve")) return j;
+    }
+    return null;
+  }
   const para = () => { if (timer) { clearInterval(timer); timer = null; q(".tz-play").textContent = "Reproducir"; } };
   q(".tz-sig").addEventListener("click", () => { para(); if (k < P.length - 1) { k++; pinta(); } });
   q(".tz-ant").addEventListener("click", () => { para(); if (k > 0) { k--; pinta(); } });
+  q(".tz-salta").addEventListener("click", () => { para(); const j = finLlamada(k); if (j !== null) { k = j; pinta(); } });
   q(".tz-reset").addEventListener("click", () => { para(); k = 0; pinta(); });
   q(".tz-play").addEventListener("click", () => {
     if (timer) return para();
@@ -1534,7 +1548,7 @@ function dibujaTraza(el, C, D) {
   document.addEventListener("fullscreenchange", alCambiarPantalla);
   raiz.addEventListener("keydown", e => {
     if (e.target.matches && e.target.matches("input, textarea, select")) return;
-    const acciones = { ArrowRight: ".tz-sig", PageDown: ".tz-sig", ArrowLeft: ".tz-ant", PageUp: ".tz-ant", Home: ".tz-reset", p: ".tz-play", P: ".tz-play", f: ".tz-proy", F: ".tz-proy" };
+    const acciones = { ArrowRight: ".tz-sig", PageDown: ".tz-sig", ArrowLeft: ".tz-ant", PageUp: ".tz-ant", Home: ".tz-reset", s: ".tz-salta", S: ".tz-salta", p: ".tz-play", P: ".tz-play", f: ".tz-proy", F: ".tz-proy" };
     const b = acciones[e.key] && q(acciones[e.key]);
     if (b && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); b.click(); }
   });
