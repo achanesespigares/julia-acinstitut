@@ -56,6 +56,7 @@ project:
     - title: Proyectos
       children:
         - file: capitulos/26-proyecto-gripe.md
+        - file: capitulos/27-proyecto-derivadas.md
 site:
   template: book-theme
   options:

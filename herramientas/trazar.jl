@@ -359,7 +359,7 @@ end
 function evalua(texto, locs)
     st = T[]
     ex = Meta.parse(texto)
-    asig = [Expr(:(=), k, v) for (k, v) in locs if !oculto(k)]
+    asig = [Expr(:(=), k, QuoteNode(v)) for (k, v) in locs if !oculto(k)]     # QuoteNode: un Symbol o una Expr guardados son valores, no código
     Core.eval(st.modulo, Expr(:let, Expr(:block, asig...), ex))
 end
 
@@ -432,6 +432,7 @@ function sustituye(ex, locs)
             ok, v = valor(e)
             return ok && simple(v) ? v : e
         elseif e isa Expr
+            e.head == :-> && return e          # lo de dentro de una función anónima no son las variables de fuera
             if e.head == :ref || (e.head == :call && e.args[1] in (:length, :sum, :maximum, :minimum, :abs))
                 v = try evalua(string(e), locs) catch; nothing end
                 simple(v) && return v
@@ -448,10 +449,25 @@ end
 como_si(v) = v isa Bool ? string(v) : un_valor(v)
 # string(:(v[end])) escribe v[var"end"]: en el libro se escribe como en el código
 limpia(t) = replace(t, "var\"end\"" => "end")
+# a -> a == 0 dentro de una condición: sin líneas ni begin … end, como se escribe en el código (proyecto 2)
+function sin_bloques(e)
+    e isa Expr || return e
+    if e.head == :-> && e.args[2] isa Expr && e.args[2].head == :block
+        cuerpo = filter(x -> !(x isa LineNumberNode), e.args[2].args)
+        length(cuerpo) == 1 && return Expr(:->, e.args[1], sin_bloques(cuerpo[1]))
+    end
+    Expr(e.head, map(sin_bloques, e.args)...)
+end
 function cond(l, v, texto, locs)
     pon_locales(locs)
+    if occursin("->", texto)
+        ex = sin_bloques(Meta.parse(texto))
+        texto = string(ex)
+    else
+        ex = Meta.parse(texto)
+    end
     anota(Dict{String,Any}("linea" => l, "tipo" => "condicion",
-        "cond" => Dict("texto" => limpia(texto), "valores" => limpia(sustituye(Meta.parse(texto), locs)), "valor" => como_si(v))))
+        "cond" => Dict("texto" => limpia(texto), "valores" => limpia(sustituye(ex, locs)), "valor" => como_si(v))))
     v
 end
 function entra(nombre, l, locs, args)

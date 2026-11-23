@@ -1,0 +1,13 @@
+name = "Derivadas"
+uuid = "5b927f00-379d-4d71-8dd8-7ab8d01f5687"
+version = "0.1.0"
+authors = ["Antonio Chanes Espigares"]
+
+[compat]
+julia = "1.13"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]

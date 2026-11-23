@@ -1249,7 +1249,11 @@ class Programa {
       const c = lista.child(i);
       if (!c.isNamed || c.type === "line_comment") continue;
       if (c.type === "named_argument") { const [k, v] = hijos(c); kw.set(k.text, this.valor(v, sc)); }
-      else if (c.type === "splat_expression") throw new NoSoportado("los argumentos con ...");
+      else if (c.type === "splat_expression") {        // f(args...): cada elemento, un argumento (proyecto 2)
+        const col = this.valor(hijos(c)[0], sc);
+        if (!V.esVector(col) && col.T !== "Tuple") throw new NoSoportado("los argumentos con ... de " + V.tipo(col));
+        for (const e of this.prim.itera(col)) args.push(e);
+      }
       else if (c.type === "operator" && c.text === ":") args.push({ T: "Colon" });         // view(A, :, 2)
       else args.push(this.valor(c, sc));
     }
@@ -1776,6 +1780,17 @@ class Programa {
         case "unary_typed_expression": return "::" + ESC(hijos(nodo)[0]);
         case "field_expression": return ESC(hijos(nodo)[0]) + "." + hijos(nodo)[1].text;
         case "named_field": return hijos(nodo)[0].text + " = " + ESC(hijos(nodo)[1]);
+        case "quote_expression": {          // :+, :sin, :(a + b) (proyecto 2)
+          const x = nodo.namedChild(0);
+          if (!x) return nodo.text;
+          if (x.type === "identifier" || x.type === "operator") return ":" + x.text;
+          return ":(" + this.escribe(desnuda(x)) + ")";
+        }
+        case "arrow_function_expression": {  // a -> a == 0 se escribe (a->a == 0), sin poner los valores de fuera
+          const [p, c] = hijos(nodo);
+          const ps = p.type === "identifier" ? p.text : "(" + hijos(p).map(q => q.text).join(", ") + ")";
+          return "(" + ps + "->" + this.escribe(c) + ")";
+        }
         case "parametrized_type_expression": { const [t, ll] = hijos(nodo); return ESC(t) + "{" + hijos(ll).map(c => ESC(c)).join(", ") + "}"; }
       }
       throw new NoSoportado("escribir «" + nodo.type.replace(/_/g, " ") + "»");

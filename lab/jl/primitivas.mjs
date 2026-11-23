@@ -344,6 +344,9 @@ export function crearPrimitivas(prog) {
       if (tipos[0] === "Irrational" || tipos[0].startsWith("Vector") || tipos[0] === "Tuple" || ["Dict", "Claves", "NamedTuple"].includes(tipos[0])) throw new NoSoportado("un vector de " + tipos[0]);
       return V.vec(tipos[0], res);
     }
+    // tipos distintos: Julia junta los tipos con promote_typejoin (proyecto 2): Int64 y Float64 dan Real; con Symbol o Expr, Any
+    if (!bits && tipos.every(t => ["Int64", "Float64", "Rational{Int64}"].includes(t))) return V.vec("Real", res);
+    if (!bits && tipos.every(t => ["Int64", "Float64", "Rational{Int64}", "Symbol", "Expr"].includes(t)) && tipos.some(t => t === "Symbol" || t === "Expr")) return V.vec("Any", res);
     throw new NoSoportado("un vector con valores de tipos distintos (" + tipos.join(", ") + ")");
   };
 
