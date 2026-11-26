@@ -1,5 +1,5 @@
 // matematicas.mjs · exp, log, log2, log10, sin, cos y tan de Julia 1.13, copiadas línea a línea
-// (Entendiendo Julia, desde dentro · AC Institut)
+// (Mirar y ver · Julia · cómo piensa tu código · AC Institut)
 //
 // Math.exp, Math.log… de JavaScript no siempre dan el mismo último dígito que Julia (comparado con 60 000
 // valores: exp difería en el 10 %, log en el 5 %, sin y cos en el 1 %). Aquí están los algoritmos de Julia

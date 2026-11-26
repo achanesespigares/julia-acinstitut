@@ -1,10 +1,10 @@
-# Mirar y ver tu código pensar · Entendiendo Julia, desde dentro · AC Institut
+# Mirar y ver · Julia · cómo piensa tu código · AC Institut
 # Jupyter Book 2 (motor MyST). Construir:  npx myst build --html
 version: 1
 project:
   id: julia-acinstitut
-  title: Mirar y ver tu código pensar
-  subtitle: Entendiendo Julia, desde dentro
+  title: Mirar y ver · Julia
+  subtitle: cómo piensa tu código
   authors:
     - name: Antonio Chanes Espigares
   license: CC-BY-NC-SA-4.0

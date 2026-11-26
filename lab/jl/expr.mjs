@@ -1,6 +1,6 @@
 // expr.mjs · El código como dato (capítulo 20): las expresiones de Julia (Expr), cómo las escribe Julia
 // y cómo se leen del árbol de tree-sitter. Parte del intérprete del laboratorio
-// (Entendiendo Julia, desde dentro · AC Institut).
+// (Mirar y ver · Julia · cómo piensa tu código · AC Institut).
 //
 // Una expresión es { T: "Expr", head, args }, con args un Vector{Any} de verdad (ex.args[1] = :* lo cambia).
 // Las hojas son símbolos ({ T: "Symbol", v }), números, textos…; además QuoteNode (el :y de :(x + :y)),

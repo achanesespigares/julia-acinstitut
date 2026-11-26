@@ -1,5 +1,5 @@
 // julia.mjs · Un intérprete de la parte de Julia que enseña el libro, que escribe trazas como trazar.jl
-// (Entendiendo Julia, desde dentro · AC Institut)
+// (Mirar y ver · Julia · cómo piensa tu código · AC Institut)
 //
 // El análisis sintáctico lo hace tree-sitter-julia; este módulo recorre su árbol y ejecuta el programa
 // como lo haría el REPL de Julia: las asignaciones dentro de un bucle del programa principal cambian las

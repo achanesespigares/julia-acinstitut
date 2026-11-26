@@ -1,5 +1,5 @@
 // errores.mjs · Los errores como valores: throw, error, catch e, rethrow (capítulo 22)
-// (Entendiendo Julia, desde dentro · AC Institut)
+// (Mirar y ver · Julia · cómo piensa tu código · AC Institut)
 //
 // Un error de Julia en el laboratorio es un ErrorJulia con su texto (lo que escribe showerror). Para atraparlo
 // con `catch e` hace falta además el valor: un { T: "Excepcion", tipo, a } con los campos de Julia

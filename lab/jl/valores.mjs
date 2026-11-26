@@ -1,5 +1,5 @@
 // valores.mjs · Los valores de Julia en JavaScript, y cómo los escribe Julia
-// Parte del intérprete del laboratorio (Entendiendo Julia, desde dentro · AC Institut).
+// Parte del intérprete del laboratorio (Mirar y ver · Julia · cómo piensa tu código · AC Institut).
 //
 // Cada valor es un objeto con su tipo en T. Los enteros son Int64 de verdad: BigInt recortado a 64 bits,
 // para que den la vuelta como en Julia. Los decimales son números de JavaScript, el mismo estándar

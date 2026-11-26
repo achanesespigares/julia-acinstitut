@@ -1,6 +1,6 @@
 # Derivadas
 
-Proyecto 2 del libro *Entendiendo Julia, desde dentro* (AC Institut).
+Proyecto 2 del libro *Mirar y ver · Julia · cómo piensa tu código* (AC Institut).
 
 Un paquete de Julia que deriva expresiones regla a regla (`deriva`), quita lo que sobra (`simplifica`), calcula su valor (`valor`) y comprueba si la derivada que ha escrito un alumno es correcta, la escriba como la escriba (`comprueba`).
 

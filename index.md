@@ -1,6 +1,6 @@
 ---
-title: Mirar y ver tu código pensar
-subtitle: Entendiendo Julia, desde dentro
+title: Mirar y ver · Julia
+subtitle: cómo piensa tu código
 ---
 
 Un libro para aprender Julia viendo cómo piensa cada programa: línea a línea, con la memoria a la vista. Es el tercero de la colección, después de los de Python y R, y está hecho con el mismo método. Cada idea parte de una situación cotidiana, se construye con código y se comprueba visualizando la ejecución.

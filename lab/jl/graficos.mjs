@@ -1,5 +1,5 @@
 // graficos.mjs · Una parte de Plots.jl (1.41, con GR) para el capítulo «Gráficos»
-// (Entendiendo Julia, desde dentro · AC Institut)
+// (Mirar y ver · Julia · cómo piensa tu código · AC Institut)
 //
 // Un gráfico es { T: "Plot", sp: { titulo, xguia, yguia, xlims, ylims, leyenda, series } }: un objeto que
 // cambia (plot! le añade series), como en Julia. El laboratorio calcula lo mismo que Plots antes de

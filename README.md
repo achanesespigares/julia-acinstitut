@@ -1,4 +1,4 @@
-# Mirar y ver tu código pensar · Entendiendo Julia, desde dentro
+# Mirar y ver · Julia · cómo piensa tu código
 
 Aprender Julia viendo cómo se ejecuta cada programa, línea a línea y con la memoria a la vista. Es el tercer libro de la colección, después de los de Python y R. Está hecho con Jupyter Book 2 (motor MyST) y se publica en GitHub Pages.
 

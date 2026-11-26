@@ -1,6 +1,6 @@
 # La gripe del internado
 
-Proyecto 1 del libro *Entendiendo Julia, desde dentro* (AC Institut).
+Proyecto 1 del libro *Mirar y ver · Julia · cómo piensa tu código* (AC Institut).
 
 Un modelo SIR del brote de gripe de un internado inglés en 1978, ajustado a los 14 días de datos.
 

@@ -1,5 +1,5 @@
 // primitivas.mjs · La aritmética de Julia y las funciones de Base que usa el libro
-// (Entendiendo Julia, desde dentro · AC Institut)
+// (Mirar y ver · Julia · cómo piensa tu código · AC Institut)
 //
 // Cada función reproduce lo que hace Julia, también sus errores, con el mismo texto. Lo que no está aquí
 // no se improvisa: si es una función conocida de Julia, el laboratorio dice que aún no la sabe usar.

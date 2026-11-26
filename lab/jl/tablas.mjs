@@ -1,5 +1,5 @@
 // tablas.mjs · Una parte de DataFrames.jl (1.8) y de Statistics, para el capítulo «Tablas de datos»
-// (Entendiendo Julia, desde dentro · AC Institut)
+// (Mirar y ver · Julia · cómo piensa tu código · AC Institut)
 //
 // Una tabla es { T: "DataFrame", nombres: [...], cols: [vectores] }: cada columna es un vector de verdad,
 // el mismo que da clase.nota. Una fila, { T: "FilaDF", df, i }, es una vista de la fila i. Lo que se

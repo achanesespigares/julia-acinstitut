@@ -1,5 +1,5 @@
 // azar.mjs · Los números al azar de Julia 1.13, para el capítulo «Probabilidad y simulación»
-// (Entendiendo Julia, desde dentro · AC Institut)
+// (Mirar y ver · Julia · cómo piensa tu código · AC Institut)
 //
 // Julia genera los números al azar con Xoshiro256++, un generador con cuatro números de 64 bits de estado.
 // Random.seed!(n) calcula ese estado con SHA-256 a partir de n, así que con la misma semilla salen los

@@ -1,5 +1,5 @@
 // tipos.mjs · Los tipos propios: struct, mutable struct y abstract type
-// (Entendiendo Julia, desde dentro · AC Institut)
+// (Mirar y ver · Julia · cómo piensa tu código · AC Institut)
 //
 // Un valor de un tipo propio es { T: "Struct", tipo, a: [campos], mut }. Si es mutable, su identidad es la
 // del objeto de JavaScript (como un vector); si no, dos valores con los mismos campos son el mismo valor.
